@@ -1,2 +1,56 @@
-# Spidyvr
-Spider vr
+# SpidyVR
+
+A WebXR city-swinging playground built for Meta Quest 3 and its Touch controllers.
+
+**Play:** https://abbas-karake-lb.github.io/Spidyvr/
+
+Open that address in **Meta Quest Browser**, select **Enter VR**, and allow the immersive session. The page must be opened over HTTPS. A phone browser can show the city, but Quest Browser is needed for the headset experience.
+
+## Quest controls
+
+| Control | Action |
+|---|---|
+| Left / right index trigger | Aim at a building, hold to attach that web, release to fly |
+| Pull attached hand backward | Launch your body forward, opposite the hand stroke |
+| Pull attached hand downward | Add upward launch momentum |
+| Pull both attached hands | Combine both strokes for more launch power |
+| Side grip with web attached | Reel in toward the anchor |
+| Hold A, then release | Charge a super jump from a roof or the street |
+| Left thumbstick | Walk and steer in the air |
+| Right thumbstick | 30-degree snap turn |
+| B | Return to the starting roof |
+| X | Cycle gentle / normal / strong pull power |
+| Y | Pause and show controls; press again to resume |
+
+Start on the marked roof. Aim above and ahead, attach a web, step or jump off, pull back, then release on the rising portion of the swing. Catch the next building with the other hand. Pulling down and back with both hands adds height and speed. Motion is intense; begin with gentle strokes.
+
+Movement settings are on the start screen and saved only in your browser. The default full jump gains about 34 meters of height. There are 105 buildings with varied roof heights, street markings, parked cars, and parks. The outer city boundary returns you to the starting roof.
+
+## Desktop
+
+Click **Play on desktop**. WASD moves, mouse looks, left/right mouse holds the two webs, Q/E reel, hold/release Space charges a jump, R resets, and Escape pauses. Desktop reeling allows inspection of the city and swing simulation, but cannot reproduce physical VR hand gestures.
+
+## Research and scope
+
+See [RESEARCH.md](RESEARCH.md) for source links, physics design, tuning values, and evidence limitations. This is an original traversal implementation inspired by the requested BattleGlide behavior, not BattleGlide source code or an exact verified replica. Physical Quest 3 testing and direct feel comparison remain necessary.
+
+## Development
+
+No build system, npm install, runtime CDN, server, or API key is needed. All published files are in `docs/`. Serve this directory with a static server for local development; use HTTPS for headset testing (localhost is allowed only on the same device).
+
+Run checks with Node 22 or later:
+
+```sh
+npm test
+npm run check
+```
+
+- `docs/game.js`: renderer, XR frame/pose handling, controller input, audio, HUD, session lifecycle.
+- `docs/physics.js`: fixed-step movement, pull impulses, rope constraints, collision, jumping.
+- `docs/city.js`: seeded city generation with instanced geometry.
+- `docs/vendor/`: vendored Three.js r180 and its MIT license.
+- `tests/`: physics regression checks and city geometry budget checks.
+
+GitHub Pages should publish from **main → /docs**. `.nojekyll` keeps the files as plain static assets. All browser imports are relative so the `/Spidyvr/` project URL works.
+
+Original project code uses the repository's Apache-2.0 license. Three.js is distributed under its own included MIT license. No BattleGlide or Marvel assets are included.

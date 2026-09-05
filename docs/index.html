@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#10202b"><meta name="description" content="A city web-swinging playground for Quest 3. Shoot two webs, pull with your hands, and leap between rooftops."><title>SpidyVR • City playground</title><link rel="icon" href="data:,"><link rel="stylesheet" href="./style.css"></head>
+<body>
+<div id="viewport"></div>
+<header><a class="brand" href="./">SPIDY<span>VR</span></a><span class="edition">CITY PLAYGROUND / 01</span><button id="menuButton" hidden>Controls & settings</button></header>
+<main id="menu">
+  <div class="eyebrow">QUEST 3 · TOUCH CONTROLLERS</div>
+  <h1>The city is<br>yours to swing.</h1>
+  <p class="intro">Aim at a building. Hold a trigger. Pull your hand back and let your momentum take over.</p>
+  <button id="enterVR" class="primary" disabled>Loading city…</button>
+  <button id="desktop" class="secondary" disabled>Play on desktop <span>↗</span></button>
+  <p id="status" role="status">Preparing your rooftop.</p>
+  <details><summary>How to play</summary><dl><dt>Index triggers</dt><dd>Hold to attach each web. Release to let go.</dd><dt>Physical hand pull</dt><dd>With a web attached, pull back quickly to launch forward. Pull down to launch upward. Use both hands for more power.</dd><dt>Side grips</dt><dd>Hold while attached to reel yourself toward the building.</dd><dt>A button</dt><dd>Hold on a rooftop or street to charge a super jump; release to leap.</dd><dt>Left stick / right stick</dt><dd>Move and steer / snap turn.</dd><dt>B / X / Y</dt><dd>Return to starting roof / cycle pull power / pause and show controls.</dd></dl><p class="small">Desktop: WASD move, mouse look, left/right mouse hold webs, Q/E reel, hold/release Space to jump, R reset, Esc pause.</p></details>
+  <details><summary>Movement settings</summary><label>Pull power <output id="pullValue">22</output><input id="pull" type="range" min="10" max="36" step="1" value="22"></label><label>Super jump <output id="jumpValue">32</output><input id="jump" type="range" min="20" max="45" step="1" value="32"></label><label>Gravity <output id="gravityValue">15</output><input id="gravity" type="range" min="9" max="22" step="1" value="15"></label><label class="toggle"><input id="vignette" type="checkbox"> Comfort vignette in VR</label><button id="resetSettings" class="secondary">Reset movement settings</button></details>
+  <p class="small">Fast, intense VR movement. Start with gentle pulls. No installation required.</p>
+</main>
+<div id="hud" hidden><div><b id="speed">0</b><span>KM/H</span></div><div><b id="altitude">32</b><span>METERS UP</span></div><div id="ropeStatus">WEBS READY</div></div>
+<div id="crosshair" hidden>+</div><div id="hint" hidden>Hold trigger to attach · Pull back to launch · Release to fly</div>
+<div id="charge" hidden><span></span></div>
+<footer id="footer"><span>FREE ROAM</span><span>Two hands. Two webs. Real momentum.</span></footer>
+<script type="module">import('./game.js').catch(error=>{document.getElementById('status').textContent='The game could not load. Reload this page. '+error.message;document.getElementById('enterVR').textContent='Reload to try again';console.error(error);});</script>
+</body></html>

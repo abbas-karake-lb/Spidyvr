@@ -1,0 +1,1 @@
+{"name":"spidyvr","version":"1.0.0","private":true,"type":"module","license":"Apache-2.0","scripts":{"test":"node --test tests/*.test.js","check":"node --check docs/game.js && node --check docs/physics.js && node --check docs/city.js"}}
