@@ -22,7 +22,7 @@ Open that address in **Meta Quest Browser**, select **Enter VR**, and allow the 
 | X | Cycle gentle / normal / strong pull power |
 | Y | Pause and show controls; press again to resume |
 
-Webs visibly travel for 75–220 milliseconds before the existing swing constraint becomes active. The firing sound is spatialized at the corresponding hand. The VR controls panel appears only while paused (Y).
+Webs visibly travel for 75–220 milliseconds before elastic web tension becomes active. The firing sound is spatialized at the corresponding hand. The VR controls panel appears only while paused (Y).
 
 Start on the marked roof. Aim above and ahead, attach a web, step or jump off, pull back, then release on the rising portion of the swing. Catch the next building with the other hand. Pulling down and back with both hands adds height and speed. Motion is intense; begin with gentle strokes.
 
@@ -48,7 +48,7 @@ npm run check
 ```
 
 - `docs/game.js`: renderer, XR frame/pose handling, controller input, audio, HUD, session lifecycle.
-- `docs/physics.js`: fixed-step movement, pull impulses, rope constraints, collision, jumping.
+- `docs/physics.js`: fixed-step movement, pull impulses, elastic rope tension, collision, jumping.
 - `docs/city.js`: original seeded layout and enhanced facade materials.
 - `docs/city-detail.js`: shared rooftop and street detail batches.
 - `docs/city-life.js`: pooled traffic, pedestrian LOD/gait, birds, aircraft, and sky.
@@ -64,12 +64,16 @@ Original project code uses the repository's Apache-2.0 license. Three.js is dist
 
 See [UPDATE-2026-09-06.md](UPDATE-2026-09-06.md) for changes, test coverage, performance budgets, and the remaining physical headset checks.
 
-## High-speed pull and strong-rope update
+## Elastic web catch update
 
-A new hand pull removes momentum opposing or crossing the launch direction, preserving speed already aligned with it. Pull impulses still follow the opposite hand movement, independent of anchor height. Continuous strokes and simultaneous hands retain their existing strength; mostly horizontal arm extension remains a recovery movement.
+Attaching a web preserves incoming velocity. The web stretches beyond its unstretched attachment length and applies damped spring tension, gradually slowing outward travel while retaining motion along the swing. There is no hard distance projection, instant radial-velocity cancellation, automatic rest-length payout, or speed-triggered break. Stronger stretching creates more tension, with the combined acceleration of both webs capped to avoid an abrupt catch. Side-grip reeling shortens the unstretched length.
 
-Held webs keep their attachment length. Hand pulls no longer shorten or automatically extend them; side-grip reeling can still explicitly shorten them. A taut web cancels velocity away from its anchor and constrains movement to its swing arc. This means a directly outward launch cannot continue through a taut, fixed-length rope: release to fly freely, or pull along the available swing arc.
+A deliberate hand pull still removes conflicting momentum and launches opposite the hand movement, independent of anchor height. Passive tension yields during the gesture, then smoothly returns over 0.22 seconds after an 0.08-second grace period. This keeps a loaded web from immediately cancelling a new pull. Releasing a web preserves current velocity.
 
-Speed, a web crossing a building, and crossing the city boundary while tethered no longer detach webs. Shots keep their initially valid target during travel. Trigger release, pause, reset, and XR tracking/session safety releases still work. Webs remain straight lines rather than wrapping around corners; player/building collision stays enabled.
+Speed, webs crossing buildings, and crossing the city boundary while tethered do not detach webs. Trigger release, pause, reset, and XR tracking/session safety releases remain intact. Webs are straight lines rather than wrapping around corners; body collision remains enabled. Catching is gradual, so leave braking distance before obstacles.
 
-This fix is isolated in its own commit. The preceding directional-pull version is `cfb9c4ba0f36e83d12158058a754f6bead170dd4`, so the fix can be reverted without undoing earlier city improvements. Automated physics and simulated Quest input tests cover the changes; physical Quest 3 comfort and feel still need headset testing.
+The solver uses the existing 180 Hz physics loop, shared temporary vectors, and one spring evaluation per held web instead of five rigid constraint iterations. It adds no meshes, textures, or draw calls. Web visuals already follow the changing hand-to-anchor distance.
+
+Tests cover 80 m/s catches with short and long webs, tangential swinging, stretched-web pulls, dual webs, release/re-fire, collision, and real game input paths driven by simulated Quest controllers at 72/90/120 Hz. An isolated, horizontal 80 m/s outward catch stops outward travel in about 0.7 seconds; geometry, gravity, and controller input affect the actual result. Physical Quest 3 feel and comfort still require headset testing.
+
+This update is isolated in its own reversible commit. The preceding rigid-rope version is `4f70e01b81b0ebc81729a5bd47e053db4680b6aa`.

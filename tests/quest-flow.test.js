@@ -38,12 +38,12 @@ test('real Quest input path turns continuously on a roof, while walking, and whi
   const start=api.physics.p.clone();sources[0].gamepad.axes[3]=-.8;for(let n=0;n<45;n++)h.tick(1/90);assert.ok(api.physics.p.distanceTo(start)>1);
   sources[0].gamepad.axes[3]=0;api.physics.p.set(22,120,22);api.physics.v.set(12,0,-25);const heading=Math.atan2(api.physics.v.x,api.physics.v.z);for(let n=0;n<30;n++)h.tick(1/90);assert.ok(Math.abs(Math.atan2(api.physics.v.x,api.physics.v.z)-heading)<.0001);assert.equal(api.vrHUD.visible,false);
 });
-test('Quest controller flow: fast travel, new web, opposite-hand pull, fixed length, release and refire',async()=>{
+test('Quest controller flow: fast travel, new web, opposite-hand pull, elastic web, release and refire',async()=>{
   for(const hand of [0,1]){
     const h=await questHarness(),{api,sources,poses}=h;api.physics.p.set(0,120,0);h.tick();h.aim(hand,V(0,32,0));sources[hand].gamepad.buttons[0].pressed=true;h.tick();
     assert.ok(api.flights[hand].active);for(let i=0;i<18;i++)h.tick();assert.ok(api.physics.ropes[hand]);
     const rope=api.physics.ropes[hand],length=rope.length;
-    // Within this fixed rope, slack allows the requested up/forward stroke.
+    // Start within the rest length to check the existing slack-rope pull flow.
     api.physics.p.y-=15;api.physics.v.set(0,0,80);
     poses[hand].p.y-=.06;poses[hand].p.z+=.04;h.tick();
     assert.ok(api.physics.v.z<0,'new pull must reverse old forward momentum immediately');assert.ok(api.physics.v.y>0);assert.equal(rope.length,length);
@@ -56,7 +56,7 @@ test('Quest controller flow: fast travel, new web, opposite-hand pull, fixed len
 test('held web survives crossing building geometry and city limits, brakes flight, and still releases on trigger',async()=>{
   const h=await questHarness(),{api,sources}=h;h.tick();sources[0].gamepad.buttons[0].pressed=true;h.tick();
   api.flights[0].cancel();api.physics.p.set(266,120,0);api.physics.attach(0,V(220,120,0),V(-.25,1.35,-.4));const rope=api.physics.ropes[0],length=rope.length;api.physics.v.set(80,0,0);
-  for(let i=0;i<12;i++)h.tick();assert.equal(api.physics.ropes[0],rope);assert.equal(rope.length,length);assert.ok(api.physics.v.x<1);assert.ok(api.physics.p.x>250,'tethered player must not reset at city edge');
+  for(let i=0;i<12;i++)h.tick();assert.equal(api.physics.ropes[0],rope);assert.equal(rope.length,length);assert.ok(api.physics.v.x>40&&api.physics.v.x<80,'catch slows gradually');for(let i=0;i<55;i++)h.tick();assert.ok(api.physics.v.x<1);assert.equal(api.physics.ropes[0],rope);assert.ok(api.physics.p.x>250,'tethered player must not reset at city edge');
   // A line through the starting building used to be automatically cut by drawWebs.
   api.physics.p.set(20,10,0);api.physics.attach(0,V(-20,10,0));const obstructed=api.physics.ropes[0];api.drawWebs();assert.equal(api.physics.ropes[0],obstructed);assert.ok(api.webs[0].visible);
   sources[0].gamepad.buttons[0].pressed=false;h.tick();assert.equal(api.physics.ropes[0],null);
@@ -74,5 +74,27 @@ test('turning around during fast flight then pulling redirects world momentum th
   for(let n=0;n<18;n++)h.tick();const rope=api.physics.ropes[1];assert.ok(rope);const length=rope.length;
   poses[1].p.y-=.07;poses[1].p.z+=.05;h.tick();
   assert.ok(api.physics.v.z>0,'a backward hand stroke after a half-turn must reverse the original flight');
-  assert.equal(api.physics.ropes[1],rope);assert.equal(rope.length,length);assert.ok(api.physics.p.clone().add(rope.hand).distanceTo(rope.anchor)<=length+.02);
+  assert.equal(api.physics.ropes[1],rope);assert.equal(rope.length,length);assert.ok(api.physics.p.clone().add(rope.hand).distanceTo(rope.anchor)<length+40);
+});
+
+test('Quest triggers catch high-speed flight elastically from both hands at 72/90/120 Hz without a hand pull',async()=>{
+  const outcomes=[];
+  for(const hz of [72,90,120])for(const hand of [0,1]){
+    const h=await questHarness(),{api,sources}=h;api.physics.settings.gravity=0;api.physics.p.set(0,150,0);api.physics.v.y=60;h.tick(1/hz);
+    h.aim(hand,V(0,32,0));sources[hand].gamepad.buttons[0].pressed=true;h.tick(1/hz);assert.ok(api.flights[hand].active);
+    let frames=0;while(!api.physics.ropes[hand]&&frames++<hz)h.tick(1/hz);
+    const rope=api.physics.ropes[hand];assert.ok(rope);assert.ok(api.physics.v.y>56,'attachment must preserve incoming speed');const length=rope.length;
+    let peak=0,previous=api.physics.v.y,stoppedAt=0;
+    for(let n=0;n<hz;n++){
+      h.tick(1/hz);const speed=api.physics.v.y;
+      assert.ok(Math.abs(speed-previous)<2.1,'no discrete velocity stop');previous=speed;
+      peak=Math.max(peak,api.physics.p.clone().add(rope.hand).distanceTo(rope.anchor)-length);
+      if(!stoppedAt&&speed<=0)stoppedAt=(n+1)/hz;
+      assert.equal(api.physics.ropes[hand],rope);assert.equal(rope.length,length);assert.equal(api.vrHUD.visible,false);
+    }
+    assert.ok(stoppedAt>.3&&stoppedAt<1);assert.ok(peak>5&&peak<30);outcomes.push({stoppedAt,peak});
+    sources[hand].gamepad.buttons[0].pressed=false;h.tick(1/hz);assert.equal(api.physics.ropes[hand],null);
+  }
+  assert.ok(Math.max(...outcomes.map(x=>x.stoppedAt))-Math.min(...outcomes.map(x=>x.stoppedAt))<.04);
+  assert.ok(Math.max(...outcomes.map(x=>x.peak))-Math.min(...outcomes.map(x=>x.peak))<.5);
 });

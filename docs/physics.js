@@ -1,10 +1,12 @@
 import {Vector3} from './vendor/three.module.min.js';
 export const V=(x=0,y=0,z=0)=>new Vector3(x,y,z);
 export const defaults={gravity:15,pull:22,jump:32,maxSpeed:80,reel:11};
+// Acceleration per metre of stretch, radial damping, and combined catch acceleration.
+const WEB_SPRING=7,WEB_DAMPING=3.6,WEB_MAX_ACCELERATION=120;
 export class Movement {
   constructor(boxes=[],settings={}) {
     this.boxes=boxes; this.settings={...defaults,...settings}; this.p=V(0,32,0); this.v=V();
-    this.time=0;this.lastPullAt=-Infinity;this.pullHeading=V();
+    this.time=0;this.lastPullAt=-Infinity;this.pullHeading=V();this.webForce=V();this.webRadial=V();
     this.ropes=[null,null]; this.grounded=false; this.height=1.7; this.radius=.32;
   }
   reset(p=V(0,32,0)){this.p.copy(p);this.v.set(0,0,0);this.ropes=[null,null];this.grounded=false;this.lastPullAt=-Infinity;}
@@ -67,14 +69,26 @@ export class Movement {
       r.length=Math.max(1.2,r.length-this.settings.reel*dt);
       this.v.addScaledVector(r.anchor.clone().sub(this.p).sub(r.hand).normalize(),18*dt);
     }});
-    this.capSpeed();this.move(this.v.clone().multiplyScalar(dt));
-    for(let iteration=0;iteration<5;iteration++)for(const r of this.ropes)if(r){
-      const radial=this.p.clone().add(r.hand).sub(r.anchor),distance=radial.length();
-      if(distance<r.length||distance<.001)continue;
+    // Elastic, tension-only webs: retain the unstretched length, never project the
+    // body onto a hard radius or delete radial velocity when a shot attaches.
+    // Briefly prioritize deliberate gestures, then smoothly restore passive load.
+    const recovery=Math.max(0,Math.min(1,(this.time-this.lastPullAt-.08)/.22));
+    const tensionWeight=recovery*recovery*(3-2*recovery);
+    this.webForce.set(0,0,0);
+    for(const r of this.ropes)if(r){
+      const radial=this.webRadial.copy(this.p).add(r.hand).sub(r.anchor),distance=radial.length();
+      const stretch=distance-r.length;
+      if(stretch<=0||distance<.001)continue;
       radial.multiplyScalar(1/distance);
-      this.move(radial.clone().multiplyScalar(r.length-distance));
-      const outward=this.v.dot(radial); if(outward>0)this.v.addScaledVector(radial,-outward);
+      // Ease damping in as slack disappears. Inward damping limits rebound;
+      // clamping at zero prevents a slack/compressed web from pushing outward.
+      const damping=WEB_DAMPING*Math.min(1,stretch/2);
+      const tension=Math.max(0,WEB_SPRING*stretch+damping*this.v.dot(radial));
+      this.webForce.addScaledVector(radial,-tension);
     }
-    this.capSpeed();
+    // Bound the combined acceleration, including two heavily stretched webs.
+    this.webForce.clampLength(0,WEB_MAX_ACCELERATION);
+    this.v.addScaledVector(this.webForce,dt*tensionWeight);
+    this.capSpeed();this.move(this.v.clone().multiplyScalar(dt));
   }
 }
