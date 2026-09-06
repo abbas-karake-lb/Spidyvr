@@ -54,7 +54,7 @@ export function enrichCity(scene,boxes,add,boxGeo){
     if((ix+iz)%2===0){
       add('signal-poles',tube,dark,x-15,2,z-15,.1,4,.1);
       add('signals',boxGeo,dark,x-15,4.2,z-15,.5,1.4,.45);
-      add('signal-lights',boxGeo,lamp,x-15,4.5,z-14.75,.19,.19,.08);
+      for(let n=0;n<3;n++){add('signal-lights',boxGeo,lamp,x-15,4.62-n*.4,z-14.75,.19,.19,.08);add('signal-lights',boxGeo,lamp,x-14.72,4.62-n*.4,z-15,.08,.19,.19);}
       add('benches',boxGeo,wood,x+11, .65,z+14,2.4,.2,.65);
       add('benches',boxGeo,wood,x+11,1.1,z+14.25,2.4,.7,.12);
       for(const side of [-1,1])add('bench-legs',boxGeo,dark,x+11+side*.85,.3,z+14,.1,.6,.55);

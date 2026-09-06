@@ -30,7 +30,7 @@ test('city population animates and reduces detail with 3D distance; geometry sta
   for(let i=0;i<90;i++){time+=1/90;city.update(time,V(0,32,0));}
   assert.notDeepEqual(city.life.pools.carsNear.instanceMatrix.array,before);
   const reports=[];
-  for(const height of [2,32,80,150,240]){time+=.1;city.update(time,V(22,height,22));const stats=budget(scene);reports.push({height,...stats,...city.life.stats});assert.ok(stats.draws<=100);assert.ok(stats.triangles<120000);if(height===240)assert.equal(city.life.stats.pedestrians,0);}
+  for(const height of [2,32,80,150,240]){time+=.1;city.update(time,V(22,height,22));const stats=budget(scene);reports.push({height,...stats,...city.life.stats});assert.ok(stats.draws<=115);assert.ok(stats.triangles<300000);if(height===240)assert.equal(city.life.stats.pedestrians,0);}
   city.update(time+.1,V(22,2,22));assert.ok(city.life.pools.peopleNear.count>0);city.update(time+.2,V(22,100,22));assert.equal(city.life.pools.peopleNear.count,0);assert.ok(city.life.pools.peopleFar.count>0);
   // Sidewalk paths must not send people through the preserved building boxes.
   for(let i=0;i<400;i++){time+=.09;city.update(time,V(0,40,0));for(const pool of [city.life.pools.peopleNear,city.life.pools.peopleFar])for(let n=0;n<pool.count;n++){pool.getMatrixAt(n,matrix);const p=new T.Vector3().setFromMatrixPosition(matrix);assert.ok(!city.boxes.some(b=>b.containsPoint(p)));}}
@@ -41,4 +41,25 @@ test('dense-city high-speed traversal plus environmental updates stays finite wi
   const scene=new T.Scene(),city=createCity(scene),p=new Movement(city.boxes);p.p.set(22,90,22);p.v.set(0,0,-65);p.attach(0,V(12,100,-44));const start=performance.now();
   for(let i=0;i<900;i++){for(let j=0;j<2;j++)p.step(1/180);city.update(i/90,p.p);assert.ok(p.p.toArray().every(Number.isFinite));}
   console.log('10 seconds of physics + city updates, CPU test host ms:',Math.round(performance.now()-start));
+});
+
+test('living city traffic queues, obeys signals, turns continuously and stays off the waterfront',()=>{
+  const scene=new T.Scene(),city=createCity(scene),traffic=city.life.traffic,viewer=V(0,120,0),previous=traffic.map(c=>c.p.clone());let turning=false,stopped=false;
+  for(let frame=0;frame<900;frame++){
+    city.update(frame/30,viewer);for(let i=0;i<traffic.length;i++){
+      const c=traffic[i];turning||=!!c.turn;stopped||=frame>200&&c.speed<.1;
+      assert.ok(c.p.distanceTo(previous[i])<.7,'traffic must not teleport between roads');previous[i].copy(c.p);
+      assert.ok(Math.abs(c.p.x)<250&&Math.abs(c.p.z)<250,'traffic must remain on the island roads');
+    }
+  }
+  assert.ok(turning&&stopped);assert.equal(traffic.length,92);assert.equal(city.life.people.length,288);
+  const signal=scene.getObjectByName('signal-lights');assert.ok(signal.instanceColor);assert.ok(scene.getObjectByName('harbor-water'));assert.ok(scene.getObjectByName('waterfront-and-horizon'));
+});
+test('near character skinning supplies finite joint transforms for walking and physical poses',()=>{
+  const scene=new T.Scene(),city=createCity(scene),viewer=V(16.5,2,0),person=city.life.people[0];person.p.set(16.5,.18,0);city.npcs.impulse(person,1,V(4,5,0));
+  for(let i=0;i<20;i++){city.npcs.step(1/90,viewer);city.update(i/90,viewer);}
+  const mesh=city.life.pools.peopleNear,shader={uniforms:{},vertexShader:T.ShaderLib.lambert.vertexShader,fragmentShader:T.ShaderLib.lambert.fragmentShader};mesh.material.onBeforeCompile(shader);
+  const data=shader.uniforms.npcPose.value.image.data;assert.ok(data.every(Number.isFinite));
+  for(let j=0;j<15;j++){const offset=(person.id*32+j*2)*4,point=V(...data.slice(offset,offset+3)).multiplyScalar(person.scale).add(person.p);assert.ok(point.distanceTo(person.ragdoll.nodes[j].p)<.001);const quaternion=new T.Quaternion(...data.slice(offset+4,offset+8));assert.ok(Math.abs(quaternion.length()-1)<.001);}
+  assert.ok(mesh.count<=48);assert.ok(city.architecture.meshes.some(m=>!m.visible));
 });

@@ -2,7 +2,7 @@ import vm from 'node:vm';
 import {readFile} from 'node:fs/promises';
 import path from 'node:path';
 import * as THREE from '../docs/vendor/three.module.min.js';
-export const canvasContext=()=>new Proxy({},{get:(target,key)=>target[key]??(()=>{}),set:(target,key,value)=>(target[key]=value,true)});
+export const canvasContext=()=>new Proxy({createLinearGradient:()=>({addColorStop(){}}),createRadialGradient:()=>({addColorStop(){}})},{get:(target,key)=>target[key]??(()=>{}),set:(target,key,value)=>(target[key]=value,true)});
 export async function questHarness(){
   const elements=new Map(),events=new Map(),audioEvents=[];
   function element(id){if(!elements.has(id))elements.set(id,{id,hidden:false,disabled:false,value:22,min:10,max:36,style:{},classList:{toggle(){}},appendChild(){},addEventListener(){},firstElementChild:{style:{}},getContext:canvasContext});return elements.get(id);}

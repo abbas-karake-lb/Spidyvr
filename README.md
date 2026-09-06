@@ -10,11 +10,14 @@ Open that address in **Meta Quest Browser**, select **Enter VR**, and allow the 
 
 | Control | Action |
 |---|---|
-| Left / right index trigger | Aim at a building, hold to shoot and attach that web, release to fly |
+| Left / right index trigger | Aim at a building or person; hold to shoot/attach, release to detach |
 | Pull attached hand backward | Launch your body forward, opposite the hand stroke |
 | Pull attached hand downward | Add upward launch momentum |
 | Pull both attached hands | Combine both strokes for more launch power |
-| Side grip with web attached | Reel in toward the anchor |
+| Side grip with building / NPC web | Reel toward the building / reel the person toward your hand |
+| Hold either thumbstick click near a person | Grab with that hand; release to drop or throw with hand velocity |
+| Move a web hand attached to a person | Lift, pull, or swing their body in the hand movement direction |
+| Strike a nearby person with your hand | Directional physical punch with haptic feedback |
 | Hold A, then release | Charge a super jump from a roof or the street |
 | Left thumbstick | Walk and steer in the air |
 | Right thumbstick | Smooth analog turn (18% dead zone, up to 120°/s) |
@@ -26,7 +29,7 @@ Webs visibly travel for 75–220 milliseconds before elastic web tension becomes
 
 Start on the marked roof. Aim above and ahead, attach a web, step or jump off, pull back, then release on the rising portion of the swing. Catch the next building with the other hand. Pulling down and back with both hands adds height and speed. Motion is intense; begin with gentle strokes.
 
-Movement settings are on the start screen and saved only in your browser. The default full jump gains about 34 meters of height. The same 105 buildings and their collision bounds remain in place, with richer facades, rooftop equipment, water tanks, signs, ledges, lighting fixtures, and street furniture. The city now includes 56 moving traffic vehicles, 96 pedestrian routes, 18 birds, and an occasional distant aircraft; distance culling limits what is actually drawn. The outer city boundary returns you to the starting roof.
+Movement settings are on the start screen and saved only in your browser. The default full jump gains about 34 meters of height. The same 105 buildings and their collision bounds remain in place, with richer facades, rooftop equipment, water tanks, signs, ledges, lighting fixtures, and street furniture. The city now includes 92 moving vehicles, 85 parked vehicles, 288 pedestrians, 24 dogs, 26 birds, and occasional aircraft. Distance culling and LOD limit visible detail. The waterfront, distant skyline, clouds, and islands extend the setting beyond the original street grid. The outer boundary returns you to the starting roof when you are not holding a web or NPC.
 
 ## Desktop
 
@@ -51,7 +54,10 @@ npm run check
 - `docs/physics.js`: fixed-step movement, pull impulses, elastic rope tension, collision, jumping.
 - `docs/city.js`: original seeded layout and enhanced facade materials.
 - `docs/city-detail.js`: shared rooftop and street detail batches.
-- `docs/city-life.js`: pooled traffic, pedestrian LOD/gait, birds, aircraft, and sky.
+- `docs/city-life.js`: traffic signals/queues/turns, crowd poses/LOD, dogs, birds, aircraft, and actor contact shadows.
+- `docs/city-models.js`: reusable vehicle and articulated character geometry.
+- `docs/city-look.js`: facade textures, nearby architecture, clouds, waterfront, distant scenery, and baked street shadows.
+- `docs/npc-physics.js`: bounded ragdoll simulation, hits, NPC webs, grabbing, throws, and recovery.
 - `docs/traversal.js`: continuous turn input and the web-flight state machine.
 - `docs/vendor/`: vendored Three.js r180 and its MIT license.
 - `tests/`: physics regression checks and city geometry budget checks.
@@ -77,3 +83,7 @@ The solver uses the existing 180 Hz physics loop, shared temporary vectors, and 
 Tests cover 80 m/s catches with short and long webs, tangential swinging, stretched-web pulls, dual webs, release/re-fire, collision, and real game input paths driven by simulated Quest controllers at 72/90/120 Hz. An isolated, horizontal 80 m/s outward catch stops outward travel in about 0.7 seconds; geometry, gravity, and controller input affect the actual result. Physical Quest 3 feel and comfort still require headset testing.
 
 This update is isolated in its own reversible commit. The preceding rigid-rope version is `4f70e01b81b0ebc81729a5bd47e053db4680b6aa`.
+
+## Living city overhaul
+
+See [CITY-OVERHAUL.md](CITY-OVERHAUL.md) for the new interactions, rendering budgets, checks, and remaining headset validation. Building collision bounds and the elastic player traversal implementation are preserved. The preceding version is `5de294d3ada94e6cd8f482aa73aa4f4dcd66ccf9`; this overhaul is published as a separate reversible commit.

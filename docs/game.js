@@ -1,17 +1,17 @@
 import * as T from './vendor/three.module.min.js';
 import {Movement,V,defaults} from './physics.js?pull=4';
-import {createCity} from './city.js';
+import {createCity} from './city.js?city=2';
 import {turnDelta,WebFlight,showVRPanel} from './traversal.js';
 const $=id=>document.getElementById(id);
-const scene=new T.Scene();scene.background=new T.Color(0xa3c3d4);scene.fog=new T.Fog(0xa3c3d4,150,550);
-scene.add(new T.HemisphereLight(0xe6f3ff,0x667268,2.2));
-const sun=new T.DirectionalLight(0xfff0d8,2.1);sun.position.set(-80,150,60);scene.add(sun);
+const scene=new T.Scene();scene.background=new T.Color(0xa3c3d4);scene.fog=new T.Fog(0xa3c3d4,200,820);
+scene.add(new T.HemisphereLight(0xe6f3ff,0x667268,1.7));
+const sun=new T.DirectionalLight(0xffe8c9,2.5);sun.position.set(-80,150,60);scene.add(sun);
 const renderer=new T.WebGLRenderer({antialias:true,powerPreference:'high-performance'});
 renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));renderer.setSize(innerWidth,innerHeight);
 renderer.xr.enabled=true;renderer.xr.setReferenceSpaceType('local-floor');renderer.xr.setFramebufferScaleFactor(.9);
 renderer.outputColorSpace=T.SRGBColorSpace;renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=1.1;
 $('viewport').appendChild(renderer.domElement);
-const camera=new T.PerspectiveCamera(72,innerWidth/innerHeight,.08,700);camera.rotation.order='YXZ';
+const camera=new T.PerspectiveCamera(72,innerWidth/innerHeight,.08,1100);camera.rotation.order='YXZ';
 const rig=new T.Group();rig.add(camera);scene.add(rig);
 const city=createCity(scene);const physics=new Movement(city.boxes);
 const settings={...defaults,vignette:false};try{const saved=JSON.parse(localStorage.getItem('spidyvr-settings')||'{}');for(const key of ['pull','jump','gravity'])if(Number.isFinite(saved[key]))settings[key]=Math.max(+$(key).min,Math.min(+$(key).max,saved[key]));settings.vignette=!!saved.vignette;}catch{}
@@ -24,6 +24,7 @@ const keys=new Set(),mouse=[false,false],reels=[false,false],worldUp=V(0,1,0);
 const ray=new T.Ray(),hit=V(),origin=V(),direction=V(),handOffset=[V(-.25,1.35,-.4),V(.25,1.35,-.4)];
 const previousHand=[null,null],buttonHistory=[[],[]],sources=[null,null],triggerHeld=[false,false],tracked=[false,false];
 const hands=[],webs=[],targets=[],aimLines=[],tips=[],impacts=[];
+const flightNPC=[null,null];
 const flights=[new WebFlight(),new WebFlight()],flashTimers=[0,0],impactTimers=[0,0];
 const shooterOffset=V(0,.05,-.015),shooterWorld=[V(),V()];
 let shotBuffer=null;const shotPanners=[],shotVoices=[];
@@ -64,17 +65,18 @@ function surfaceNormal(point){
   for(const box of city.boxes)if(point.x>=box.min.x-.02&&point.x<=box.max.x+.02&&point.y>=box.min.y-.02&&point.y<=box.max.y+.02&&point.z>=box.min.z-.02&&point.z<=box.max.z+.02){for(const axis of ['x','y','z'])for(const side of ['min','max'])if(Math.abs(point[axis]-box[side][axis])<.02){const normal=V();normal[axis]=side==='min'?-1:1;return normal;}}
   return V(0,1,0);
 }
-function cancelWeb(i){physics.release(i);flights[i].cancel();impactTimers[i]=0;flashTimers[i]=0;}
+function cancelWeb(i){physics.release(i);city.npcs.releaseWeb(i);flightNPC[i]=null;flights[i].cancel();impactTimers[i]=0;flashTimers[i]=0;}
 function advanceFlights(dt){for(let i=0;i<2;i++){
   flashTimers[i]=Math.max(0,flashTimers[i]-dt);impactTimers[i]=Math.max(0,impactTimers[i]-dt);
+  if(flights[i].active&&flightNPC[i])flights[i].target.copy(city.npcs.position(flightNPC[i].person,flightNPC[i].node));
   if(flights[i].advance(dt)&&triggerHeld[i]&&!paused){
     // Keep the valid target selected at firing, even when the player moves past a corner.
     const to=flights[i].target;
-    physics.attach(i,to,handOffset[i]);pulse(i,.45,40);
+    if(flightNPC[i]){city.npcs.attachWeb(i,flightNPC[i]);flightNPC[i]=null;}else physics.attach(i,to,handOffset[i]);pulse(i,.45,40);
     const normal=surfaceNormal(to);impacts[i].position.copy(to).addScaledVector(normal,.06);impacts[i].quaternion.setFromUnitVectors(V(0,0,1),normal);impactTimers[i]=.18;
   }
 }}
-function releaseAll(){for(let i=0;i<2;i++){cancelWeb(i);previousHand[i]=null;triggerHeld[i]=false;reels[i]=false;mouse[i]=false;}keys.clear();jumpHeld=false;charge=0;}
+function releaseAll(){city.npcs.releaseAll();for(let i=0;i<2;i++){cancelWeb(i);previousHand[i]=null;triggerHeld[i]=false;reels[i]=false;mouse[i]=false;}keys.clear();jumpHeld=false;charge=0;}
 function reset(){releaseAll();physics.reset();lastHead=null;overlayTimer=8;sound(280);}
 function uiPlaying(playing){document.body.classList.toggle('playing',playing);$('menu').hidden=playing;$('footer').hidden=playing;$('hud').hidden=!playing||!!session;$('hint').hidden=!playing||!!session;$('crosshair').hidden=!playing||!!session;$('menuButton').hidden=!playing||!!session;}
 function pause(value){paused=value;vrHUD.visible=showVRPanel(!!session,paused);lastHud=-1;releaseAll();if(wind)wind.gain.value=0;overlayTimer=value?999:6;if(desktop)uiPlaying(!value);}
@@ -109,32 +111,36 @@ const hudCanvas=document.createElement('canvas');hudCanvas.width=1024;hudCanvas.
 const vrHUD=new T.Mesh(new T.PlaneGeometry(1.1,.55),new T.MeshBasicMaterial({map:hudTexture,transparent:true,depthTest:false}));vrHUD.renderOrder=20;scene.add(vrHUD);vrHUD.visible=false;
 const comfortGeo=new T.RingGeometry(.36,3,64);const comfort=new T.Mesh(comfortGeo,new T.MeshBasicMaterial({color:0x091721,transparent:true,opacity:0,depthTest:false,side:T.DoubleSide}));comfort.renderOrder=19;scene.add(comfort);comfort.visible=false;
 function updateHud(time,headPos,headQuat){
-  const speed=physics.v.length(),ropeCount=physics.ropes.filter(Boolean).length;
+  const speed=physics.v.length(),ropeCount=physics.ropes.filter(Boolean).length+city.npcs.webs.filter(Boolean).length;
   if((!session||paused)&&time-lastHud>.15){lastHud=time;$('speed').textContent=Math.round(speed*3.6);$('altitude').textContent=Math.round(physics.p.y);$('ropeStatus').textContent=ropeCount?`${ropeCount} WEB${ropeCount===2?'S':''} ATTACHED`:'WEBS READY';
     ctx.clearRect(0,0,1024,512);ctx.fillStyle='rgba(9,25,34,.82)';ctx.fillRect(0,0,1024,512);ctx.strokeStyle='#85efd4';ctx.lineWidth=4;ctx.strokeRect(2,2,1020,508);
     ctx.fillStyle='#a0ffe4';ctx.font='bold 43px sans-serif';ctx.fillText(paused?'PAUSED · Y TO RESUME':'SPIDYVR',32,60);
     ctx.fillStyle='white';ctx.font='30px sans-serif';ctx.fillText(`${Math.round(speed*3.6)} km/h     ${Math.round(physics.p.y)} m     ${ropeCount}/2 webs`,32,108);
     ctx.font='28px sans-serif';
-    const lines=paused||overlayTimer>0?['TRIGGER hold web · release to fly','PULL hand back → launch forward','PULL hand down → launch upward','GRIP reel in · A hold/release jump','Left stick move · Right stick turn','B reset · X pull power · Y pause']:[`Pull power ${settings.pull}  ·  X to change`,charge>0?`JUMP CHARGING ${Math.round(charge*100)}%`:'Pull fast. Release at the top of your swing.','Y for controls'];
-    lines.forEach((line,i)=>ctx.fillText(line,32,165+i*49));hudTexture.needsUpdate=true;
+    ctx.font='24px sans-serif';
+    const lines=['TRIGGER building: swing / person: web','BUILDING: pull down/back to launch','PERSON: move web hand to move body','STICK CLICK hold grab / release throw','GRIP reel / A hold-release jump','Left stick move / Right stick turn','B reset / X pull power / Y pause','Punch nearby people with hand motion'];
+    lines.forEach((line,i)=>ctx.fillText(line,32,155+i*42));hudTexture.needsUpdate=true;
   }
   vrHUD.visible=showVRPanel(!!session,paused);comfort.visible=!!session&&settings.vignette&&!paused;
   if(session){const offset=V(0,paused?-.08:-.36,-1.3).applyQuaternion(headQuat);vrHUD.position.copy(headPos).add(offset);vrHUD.quaternion.copy(headQuat);vrHUD.scale.setScalar(paused||overlayTimer>0?1:.6);comfort.position.copy(headPos).add(V(0,0,-.42).applyQuaternion(headQuat));comfort.quaternion.copy(headQuat);comfort.material.opacity=Math.min(.86,Math.max(0,(speed-7)/24));}
   $('charge').hidden=charge<=0||!!session;$('charge').firstElementChild.style.width=`${charge*100}%`;
 }
 const yawQuat=new T.Quaternion(),headQuat=new T.Quaternion(),headWorld=V(),moveWish=V();
-function processHand(i,o,d,offset,pressed,grip,delta,dt){
+function processHand(i,o,d,offset,pressed,grip,delta,dt,grab=false){
   handOffset[i].copy(offset);if(physics.ropes[i])physics.ropes[i].hand.copy(offset);
-  const target=cast(o,d);targets[i].visible=!!target;if(target)targets[i].position.copy(target);
-  const line=aimLines[i];line.visible=!!session&&!physics.ropes[i]&&!flights[i].active&&!paused;
+  if(!paused){const contact=city.npcs.handInput(i,physics.p.clone().add(offset),delta,physics.v,grab,dt);if(contact){pulse(i,contact==='punch'?.7:.4,35);sound(contact==='punch'?100:400);}}
+  const buildingTarget=cast(o,d),npcTarget=city.npcs.raycast(o,d,buildingTarget?buildingTarget.distanceTo(o):170);
+  const target=npcTarget?npcTarget.point:buildingTarget;targets[i].material.color.set(npcTarget?0xffd99c:0x8cffe2);targets[i].visible=!!target;if(target)targets[i].position.copy(target);
+  const line=aimLines[i];line.visible=!!session&&!physics.ropes[i]&&!city.npcs.webs[i]&&!flights[i].active&&!paused;
   const arr=line.geometry.attributes.position;arr.setXYZ(0,o.x,o.y,o.z);const end=target||o.clone().addScaledVector(d,6);arr.setXYZ(1,end.x,end.y,end.z);arr.needsUpdate=true;
   if(pressed&&!triggerHeld[i]&&!paused){
     shooterWorld[i].copy(shooterOffset).applyQuaternion(hands[i].quaternion).add(physics.p).add(offset);
     fireSound(i,shooterWorld[i]);flashTimers[i]=.07;
-    if(target){flights[i].fire(shooterWorld[i],target);pulse(i,.22,20);}else pulse(i,.15,18);
+    if(target){flightNPC[i]=npcTarget;flights[i].fire(shooterWorld[i],target);pulse(i,.22,20);}else pulse(i,.15,18);
   }
   if(!pressed&&triggerHeld[i])cancelWeb(i);
   triggerHeld[i]=pressed;reels[i]=grip&&!paused;
+  if(city.npcs.webs[i]&&delta&&!paused)city.npcs.pullWeb(i,delta,dt);
   if(physics.ropes[i]&&delta&&!paused){const power=physics.pull(i,delta,dt);if(power>.22)pulse(i,Math.min(.7,power*.12),18);}
 }
 function buttonEdge(i,buttons,index){const now=!!buttons[index]?.pressed,edge=now&&!buttonHistory[i][index];buttonHistory[i][index]=now;return edge;}
@@ -151,9 +157,9 @@ function updateXR(frame,dt){
   moveWish.set(0,0,0);let wantsJump=false;
   for(let i=0;i<2;i++){
     const source=sources[i],gp=source?.gamepad;
-    if(!source||!gp){cancelWeb(i);previousHand[i]=null;hands[i].visible=false;tracked[i]=false;triggerHeld[i]=false;buttonHistory[i]=[];continue;}
+    if(!source||!gp){cancelWeb(i);city.npcs.releaseHand(i);previousHand[i]=null;hands[i].visible=false;tracked[i]=false;triggerHeld[i]=false;buttonHistory[i]=[];continue;}
     const targetPose=frame.getPose(source.targetRaySpace,reference),gripPose=source.gripSpace?frame.getPose(source.gripSpace,reference):targetPose;
-    if(!targetPose||!gripPose){cancelWeb(i);previousHand[i]=null;hands[i].visible=false;tracked[i]=false;triggerHeld[i]=false;continue;}
+    if(!targetPose||!gripPose){cancelWeb(i);city.npcs.releaseHand(i);previousHand[i]=null;hands[i].visible=false;tracked[i]=false;triggerHeld[i]=false;continue;}
     tracked[i]=true;
     const p=gripPose.transform.position,orientation=gripPose.transform.orientation;
     const relative=V(p.x-headLocal.x,p.y-headLocal.y,p.z-headLocal.z);
@@ -166,7 +172,7 @@ function updateXR(frame,dt){
     const buttons=gp.buttons;
     if(i===1){wantsJump=!!buttons[4]?.pressed;if(buttonEdge(i,buttons,5)){reset();}}
     else {if(buttonEdge(i,buttons,4)){settings.pull=settings.pull<20?22:settings.pull<30?34:14;syncSettings();overlayTimer=6;pulse(i);}if(buttonEdge(i,buttons,5))pause(!paused);const x=gp.axes.length>=4?gp.axes[2]:gp.axes[0]||0,z=gp.axes.length>=4?gp.axes[3]:gp.axes[1]||0;moveWish.set(Math.abs(x)>.15?x:0,0,Math.abs(z)>.15?z:0);}
-    processHand(i,origin,direction,offset,!!buttons[0]?.pressed,!!buttons[1]?.pressed,delta,dt);
+    processHand(i,origin,direction,offset,!!buttons[0]?.pressed,!!buttons[1]?.pressed,delta,dt,!!buttons[3]?.pressed);
   }
   const forward=V(0,0,-1).applyQuaternion(headQuat);forward.y=0;if(forward.lengthSq()<.01)forward.set(0,0,-1);forward.normalize();const right=forward.clone().cross(worldUp);moveWish.copy(right.multiplyScalar(moveWish.x).addScaledVector(forward,-moveWish.z)).clampLength(0,1);
   updateJump(wantsJump,dt);return true;
@@ -182,7 +188,7 @@ function updateDesktop(dt){
 }
 function drawWebs(){for(let i=0;i<2;i++){
   // Rendering never releases a held rope, including when its line crosses geometry.
-  const r=physics.ropes[i],mesh=webs[i];
+  const npcWeb=city.npcs.webs[i],r=physics.ropes[i]||(npcWeb?{anchor:city.npcs.position(npcWeb.person,npcWeb.node)}:null),mesh=webs[i];
   mesh.visible=!!r;
   shooterWorld[i].copy(shooterOffset).applyQuaternion(hands[i].quaternion).add(hands[i].position);
   const flight=flights[i];tips[i].visible=flight.active&&!paused;impacts[i].visible=impactTimers[i]>0&&!paused;
@@ -197,12 +203,13 @@ renderer.setAnimationLoop((milliseconds,frame)=>{
   let ready=true;
   if(active){if(session&&frame){if(session.visibilityState!=='visible'){releaseAll();ready=false;}else ready=updateXR(frame,dt);}else if(desktop&&!paused)updateDesktop(dt);
     if(!paused&&ready){advanceFlights(dt);accumulator+=dt;while(accumulator>=1/180){physics.step(1/180,moveWish,reels);accumulator-=1/180;}overlayTimer=Math.max(0,overlayTimer-dt);
-      const tethered=physics.ropes.some(Boolean)||flights.some(f=>f.active);
+      const tethered=physics.ropes.some(Boolean)||flights.some(f=>f.active)||city.npcs.webs.some(Boolean)||city.npcs.grabs.some(Boolean);
       if(!tethered&&(Math.abs(physics.p.x)>265||Math.abs(physics.p.z)>265||physics.p.y< -10||physics.p.y>400))reset();
     }else accumulator=0;
     if(session){yawQuat.setFromAxisAngle(worldUp,yaw);rig.quaternion.copy(yawQuat);const offset=V(headLocal.x,0,headLocal.z).applyQuaternion(yawQuat);rig.position.copy(physics.p).sub(offset);headWorld.copy(physics.p).add(V(0,roomY,0));}
     else{rig.position.copy(physics.p);headWorld.copy(physics.p).add(V(0,1.7,0));}
     for(let i=0;i<2;i++)if(hands[i].visible)hands[i].position.copy(physics.p).add(handOffset[i]);
+    if(!paused&&ready){for(let i=0;i<2;i++)city.npcs.hands[i].copy(physics.p).add(handOffset[i]);city.npcs.step(dt,physics.p,reels);}
     drawWebs();updateHud(time,headWorld,headQuat);updateAudioPose(headWorld,headQuat);
     if(wind)wind.gain.setTargetAtTime(!paused&&ready?Math.min(.18,physics.v.length()/350):0,audio.currentTime,.15);
   }else{

@@ -1,6 +1,7 @@
 import * as T from './vendor/three.module.min.js';
-import {enrichCity} from './city-detail.js';
-import {createCityLife} from './city-life.js';
+import {enrichCity} from './city-detail.js?city=2';
+import {createCityLife} from './city-life.js?city=2';
+import {facadeMaterial,upgradeArchitecture,atmosphere,bakedShadows} from './city-look.js';
 export function createCity(scene){
   let seed=7301;const rand=()=>{seed=(seed*1664525+1013904223)>>>0;return seed/4294967296;};
   const boxGeo=new T.BoxGeometry(1,1,1),dummy=new T.Object3D(),boxes=[];
@@ -12,7 +13,10 @@ export function createCity(scene){
   }
   const solid=c=>new T.MeshLambertMaterial({color:c});
   const roof=solid(0x737d82),sidewalk=solid(0xbcc0bc),asphalt=solid(0x394650),grass=solid(0x66856a),trunk=solid(0x6e5542),leaf=solid(0x547a59);
-  const floor=new T.Mesh(new T.PlaneGeometry(1600,1600),asphalt);floor.rotation.x=-Math.PI/2;floor.position.y=-.04;scene.add(floor);
+  const roadCanvas=document.createElement('canvas');roadCanvas.width=roadCanvas.height=256;const roadContext=roadCanvas.getContext('2d');roadContext.fillStyle='#51585a';roadContext.fillRect(0,0,256,256);
+  let surfaceSeed=733;for(let i=0;i<4500;i++){surfaceSeed=(surfaceSeed*1664525+1013904223)>>>0;const x=surfaceSeed%256,y=(surfaceSeed>>>8)%256;roadContext.fillStyle=i%2?'#5b6262':'#474f52';roadContext.fillRect(x,y,1,1);}
+  const roadTexture=new T.CanvasTexture(roadCanvas);roadTexture.colorSpace=T.SRGBColorSpace;roadTexture.wrapS=roadTexture.wrapT=T.RepeatWrapping;roadTexture.repeat.set(64,64);roadTexture.anisotropy=4;asphalt.map=roadTexture;asphalt.color.set(0xffffff);
+  const floor=new T.Mesh(new T.PlaneGeometry(500,500),asphalt);floor.rotation.x=-Math.PI/2;floor.position.y=-.04;scene.add(floor);
   function facade(rows){
     const canvas=document.createElement('canvas');canvas.width=256;canvas.height=rows*32;
     const c=canvas.getContext('2d'),style=[8,13,20,29].indexOf(rows);
@@ -33,7 +37,7 @@ export function createCity(scene){
     }
     const tex=new T.CanvasTexture(canvas);tex.colorSpace=T.SRGBColorSpace;tex.anisotropy=4;
     tex.minFilter=T.LinearMipmapLinearFilter;tex.magFilter=T.LinearFilter;
-    return new T.MeshLambertMaterial({map:tex});
+    tex.dispose();return facadeMaterial(rows,style);
   }
   const facades=[facade(8),facade(13),facade(20),facade(29)];
   function building(x,z,w,d,h,type){
@@ -70,23 +74,28 @@ export function createCity(scene){
     }
     for(let k=0;k<5;k++)addBatch('crosswalk',boxGeo,white,x+17+k*2,.025,z+14,1,.03,3);
   }
-  const carMat=solid(0xffffff),glass=solid(0x354d5d),wheels=solid(0x20282d);
+  const parked=[];
   for(let i=0;i<85;i++){
     const vertical=rand()>.5;let x=Math.round((rand()-.5)*10)*44+18,z=(rand()-.5)*470;
     if(!vertical)[x,z]=[z,x];const rotation=vertical?0:Math.PI/2;
-    addBatch('cars',boxGeo,carMat,x,.7,z,1.9,1.1,4,[0xb85545,0xd7d2ba,0x3f7288,0xe1b75b,0x758078][i%5],rotation);
-    addBatch('car-windows',boxGeo,glass,x,1.4,z,1.65,.6,2.2,0xffffff,rotation);
-    for(const s of [-1,1])for(const t of [-1,1])addBatch('wheels',boxGeo,wheels,x+(vertical?s:1.3*t),.4,z+(vertical?1.3*t:s),.4,.55,.5);
+    parked.push({p:new T.Vector3(x,0,z),angle:rotation,type:i%19===0?2:i%7===0?4:i%3===0?1:0,color:[0xb85545,0xd7d2ba,0x3f7288,0xe1b75b,0x758078][i%5]});
   }
   const detail=enrichCity(scene,boxes,addBatch,boxGeo);detail.animateLeaves(leaf);
+  let signals=null;
   for(const [name,{geo,mat,items}] of batches){
     const mesh=new T.InstancedMesh(geo,mat,items.length);
     items.forEach((o,i)=>{dummy.position.set(o.x,o.y,o.z);dummy.scale.set(o.w,o.h,o.d);dummy.rotation.set(0,o.rotation,0);dummy.updateMatrix();mesh.setMatrixAt(i,dummy.matrix);mesh.setColorAt(i,new T.Color(o.color));});
-    mesh.name=name;mesh.computeBoundingSphere();scene.add(mesh);
+    mesh.name=name;mesh.computeBoundingSphere();scene.add(mesh);if(name==='signal-lights')signals=mesh;
   }
   // Clearly visible rooftop starting pad.
   const pad=new T.Mesh(new T.RingGeometry(2.8,3,64),new T.MeshBasicMaterial({color:0x69eadc,side:T.DoubleSide}));
   pad.rotation.x=-Math.PI/2;pad.position.set(0,32.02,0);scene.add(pad);
-  const life=createCityLife(scene,boxes);
-  return {boxes,buildingCount:boxes.length,life,update(time,position,paused=false){detail.timeUniform.value=time;life.update(time,position,paused);}};
+  const life=createCityLife(scene,boxes,parked),architecture=upgradeArchitecture(scene,boxes),sky=atmosphere(scene);bakedShadows(scene,boxes);
+  const signalColor=new T.Color();let signalState=-1,cityTime=0,lastClock=null;
+  return {boxes,buildingCount:boxes.length,life,architecture,sky,npcs:life.npcs,update(time,position,paused=false){
+    if(lastClock===null)lastClock=time;if(!paused)cityTime+=Math.max(0,Math.min(.05,time-lastClock));lastClock=time;
+    detail.timeUniform.value=cityTime;life.update(time,position,paused);architecture.update(position);sky.update(cityTime,position);
+    const phase=life.signal(),state=phase<8?0:phase<9?1:phase<17?2:3;
+    if(signals&&state!==signalState){signalState=state;for(let i=0;i<signals.count;i++){const lamp=Math.floor((i%6)/2),horizontal=i%2===1,lit=horizontal?(state===2?2:state===3?1:0):(state===0?2:state===1?1:0);signals.setColorAt(i,signalColor.set(lamp===lit?[0xee5043,0xffc960,0x8ce0a8][lamp]:0x283c40));}signals.instanceColor.needsUpdate=true;}
+  }};
 }
