@@ -38,3 +38,10 @@ test('real Quest input path turns continuously on a roof, while walking, and whi
   const start=api.physics.p.clone();sources[0].gamepad.axes[3]=-.8;for(let n=0;n<45;n++)h.tick(1/90);assert.ok(api.physics.p.distanceTo(start)>1);
   sources[0].gamepad.axes[3]=0;api.physics.p.set(22,120,22);api.physics.v.set(12,0,-25);const heading=Math.atan2(api.physics.v.x,api.physics.v.z);for(let n=0;n<30;n++)h.tick(1/90);assert.ok(Math.abs(Math.atan2(api.physics.v.x,api.physics.v.z)-heading)<.0001);assert.equal(api.vrHUD.visible,false);
 });
+test('Quest controller flow: attach below while falling, pull down/back, and sustain an upward launch',async()=>{
+  const h=await questHarness(),{api,sources,poses}=h;api.physics.p.set(0,80,0);api.physics.v.y=-3;h.aim(0,V(0,32,0));sources[0].gamepad.buttons[0].pressed=true;
+  for(let i=0;i<18;i++)h.tick();assert.ok(api.physics.ropes[0]);assert.ok(api.physics.ropes[0].anchor.y<api.physics.p.y);
+  for(let i=0;i<9;i++){poses[0].p.y-=.06;poses[0].p.z+=.03;h.tick();}
+  assert.ok(api.physics.v.y>5,`expected upward controller-driven boost, got ${api.physics.v.y}`);assert.ok(api.physics.v.z<0);
+  const height=api.physics.p.y;for(let i=0;i<10;i++)h.tick();assert.ok(api.physics.p.y>height+.5);assert.ok(api.physics.ropes[0]);assert.equal(api.vrHUD.visible,false);
+});

@@ -1,5 +1,5 @@
 import * as T from './vendor/three.module.min.js';
-import {Movement,V,defaults} from './physics.js';
+import {Movement,V,defaults} from './physics.js?pull=2';
 import {createCity} from './city.js';
 import {turnDelta,WebFlight,showVRPanel} from './traversal.js';
 const $=id=>document.getElementById(id);

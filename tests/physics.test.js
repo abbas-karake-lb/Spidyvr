@@ -18,3 +18,24 @@ test('fast lateral movement hits a thin wall',()=>{const p=new Movement([{min:V(
 test('rope correction cannot teleport player through a building',()=>{const p=new Movement([{min:V(3,0,-10),max:V(7,60,10)}]);p.p.set(0,20,0);p.attach(0,V(12,30,0),V());p.ropes[0].length=2;advance(p,.1);assert.ok(p.p.x<=2.681);});
 test('charged jump clears a normal building and cannot repeat in midair',()=>{const p=new Movement();p.p.set(0,0,0);advance(p,.02);assert.equal(p.jump(1),true);assert.equal(p.jump(1),false);let peak=0;for(let i=0;i<900;i++){p.step(1/180);peak=Math.max(peak,p.p.y);}assert.ok(peak>30&&peak<36,`peak=${peak}`);});
 test('dual anchor simulation remains finite and bounded over extended swinging',()=>{const p=new Movement();p.p.set(0,40,0);p.v.set(20,0,-8);p.attach(0,V(-20,80,0));p.attach(1,V(20,80,0));for(let i=0;i<3600;i++){p.step(1/180);assert.ok(p.p.toArray().every(Number.isFinite));assert.ok(p.v.length()<=80.001);}for(const r of p.ropes)assert.ok(p.p.clone().add(r.hand).distanceTo(r.anchor)<=r.length+.02);});
+test('identical downward/backward strokes add identical upward/forward boosts above or below the anchor',()=>{
+  const velocities=[];for(const anchorY of [20,140]){const p=new Movement();p.p.set(0,80,0);p.attach(0,V(0,anchorY,-35),V(-.25,1.35,-.4));p.pull(0,V(0,-.07,.04),1/72);assert.ok(p.v.y>0&&p.v.z<0);velocities.push(p.v.toArray());}assert.deepEqual(velocities[0],velocities[1]);
+});
+test('falling above buildings: downward pulls recover upward flight instead of being cancelled by a lower taut web',()=>{
+  const p=new Movement();p.p.set(0,80,0);p.v.y=-8;p.attach(0,V(0,25,-15),V(-.25,1.35,-.4));
+  for(let frame=0;frame<10;frame++){p.pull(0,V(0,-.06,.035),1/72);for(let n=0;n<3;n++)p.step(1/180);}
+  const height=p.p.y;assert.ok(p.v.y>6,`upward velocity ${p.v.y}`);assert.ok(p.v.z<0);assert.ok(p.ropes[0].pullPayout);
+  advance(p,.2);assert.ok(p.p.y>height+1,'rope must not cancel the launch on following frames');
+});
+test('upward/backward hand stroke launches downward/forward even when the anchor is above',()=>{
+  const p=new Movement();p.p.set(0,80,0);p.attach(0,V(0,140,-15),V(.25,1.35,-.4));p.pull(0,V(0,.08,.04),1/72);assert.ok(p.v.y<0&&p.v.z<0);const before=p.p.y;advance(p,.15);assert.ok(p.p.y<before-.2);assert.ok(p.ropes[0].pullPayout);
+});
+test('dual lower webs cannot cancel an upward directional pull from either hand',()=>{
+  const p=new Movement();p.p.set(0,80,0);p.attach(0,V(-8,20,-10),V(-.25,1.35,-.4));p.attach(1,V(8,20,-10),V(.25,1.35,-.4));p.pull(0,V(0,-.1,.035),1/72);assert.ok(p.ropes.every(r=>r.pullPayout));advance(p,.1);assert.ok(p.v.y>1&&p.p.y>80);
+});
+test('outward boost payout stops at the natural apex and ordinary rope tension resumes',()=>{
+  const p=new Movement();p.p.set(0,80,0);p.attach(0,V(0,20,0),V());p.pull(0,V(0,-.1,0),1/72);advance(p,.1);assert.ok(p.ropes[0].pullPayout);const initial=p.ropes[0].length;advance(p,.6);assert.equal(p.ropes[0].pullPayout,false);const length=p.ropes[0].length;assert.ok(length>=initial);advance(p,.2);near(p.ropes[0].length,length);assert.ok(p.p.distanceTo(p.ropes[0].anchor)<=length+.01);
+});
+test('side-grip reeling overrides outward boost payout and still reels toward the anchor',()=>{
+  const p=new Movement();p.p.set(0,80,0);p.attach(0,V(0,20,0),V());p.pull(0,V(0,-.1,0),1/72);advance(p,.1);const length=p.ropes[0].length;p.step(1/180,V(),[true,false]);assert.equal(p.ropes[0].pullPayout,false);assert.ok(p.ropes[0].length<length);assert.ok(p.v.y<=0);
+});

@@ -18,7 +18,7 @@ export async function questHarness(){
     document:{getElementById:element,body:{classList:{toggle(){}}},createElement:()=>({getContext:canvasContext}),addEventListener(type,fn){events.set(type,fn);}},
     window:{addEventListener(type,fn){events.set(type,fn);}}});
   const exported=Object.keys(THREE),three=new vm.SyntheticModule(exported,function(){for(const key of exported)this.setExport(key,key==='WebGLRenderer'?Renderer:THREE[key]);},{context});
-  const cache=new Map();async function load(file){if(cache.has(file))return cache.get(file);const mod=new vm.SourceTextModule(await readFile(file,'utf8'),{context,identifier:file});cache.set(file,mod);await mod.link(async(specifier,parent)=>specifier.includes('/vendor/')?three:load(path.resolve(path.dirname(parent.identifier),specifier)));return mod;}
+  const cache=new Map();async function load(file){if(cache.has(file))return cache.get(file);const mod=new vm.SourceTextModule(await readFile(file,'utf8'),{context,identifier:file});cache.set(file,mod);await mod.link(async(specifier,parent)=>specifier.includes('/vendor/')?three:load(path.resolve(path.dirname(parent.identifier),specifier.split('?')[0])));return mod;}
   const game=await load(path.resolve('docs/game.js'));await game.evaluate();await element('enterVR').onclick();
   const frame={getViewerPose:()=>({transform:{position:{x:0,y:1.7,z:0},orientation:{x:0,y:0,z:0,w:1}}}),getPose:space=>space?{transform:{position:poses[space.i].p,orientation:poses[space.i].q}}:null};
   let clock=1000;const api=game.namespace;

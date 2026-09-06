@@ -63,3 +63,9 @@ Original project code uses the repository's Apache-2.0 license. Three.js is dist
 ## September 6 update
 
 See [UPDATE-2026-09-06.md](UPDATE-2026-09-06.md) for changes, test coverage, performance budgets, and the remaining physical headset checks.
+
+## Directional pull update
+
+Pull down and back to boost up and forward, even when attached to a building below you. Pull up and back to boost down and forward. Vertical stroke direction is independent of anchor height; mostly horizontal arm extension remains a recovery movement. While a hand boost carries you away from an anchor, the rope lets out instead of immediately cancelling the boost. Ordinary rope tension resumes when that outward motion ends. Side-grip reeling explicitly overrides this and still draws you toward the anchor.
+
+This change is isolated in its own commit. The preceding city/turning version is `7fb3f57b9ba8f9ccf9a79b0d5e7a4254170a0bbb`; reverting the directional-pull commit restores that behavior without undoing the city upgrade.
