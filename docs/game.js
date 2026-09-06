@@ -1,19 +1,20 @@
 import * as T from './vendor/three.module.min.js';
 import {Movement,V,defaults} from './physics.js?pull=5';
-import {createCity} from './city.js?city=2';
+import {createCity} from './city.js?city=3';
+import {configureCityRendering,visualQuality} from './city-quality.js?visual=3';
 import {turnDelta,WebFlight,showVRPanel} from './traversal.js';
 const $=id=>document.getElementById(id);
-const scene=new T.Scene();scene.background=new T.Color(0xa3c3d4);scene.fog=new T.Fog(0xa3c3d4,200,820);
-scene.add(new T.HemisphereLight(0xe6f3ff,0x667268,1.7));
-const sun=new T.DirectionalLight(0xffe8c9,2.5);sun.position.set(-80,150,60);scene.add(sun);
+const scene=new T.Scene();scene.background=new T.Color(0xa3c3d4);scene.fog=new T.Fog(0xa9bac4,280,1000);
+scene.add(new T.HemisphereLight(0xdbeaff,0x817362,.8));
+const sun=new T.DirectionalLight(0xffecd6,3.4);sun.position.set(-80,150,60);scene.add(sun);
 const renderer=new T.WebGLRenderer({antialias:true,powerPreference:'high-performance'});
-renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));renderer.setSize(innerWidth,innerHeight);
-renderer.xr.enabled=true;renderer.xr.setReferenceSpaceType('local-floor');renderer.xr.setFramebufferScaleFactor(.9);
-renderer.outputColorSpace=T.SRGBColorSpace;renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=1.1;
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.setSize(innerWidth,innerHeight);
+renderer.xr.enabled=true;renderer.xr.setReferenceSpaceType('local-floor');renderer.xr.setFramebufferScaleFactor(visualQuality.framebufferScale);
+renderer.outputColorSpace=T.SRGBColorSpace;renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=1.0;
 $('viewport').appendChild(renderer.domElement);
 const camera=new T.PerspectiveCamera(72,innerWidth/innerHeight,.08,1100);camera.rotation.order='YXZ';
 const rig=new T.Group();rig.add(camera);scene.add(rig);
-const city=createCity(scene);const physics=new Movement(city.boxes);
+const city=createCity(scene),quality=configureCityRendering(renderer,scene,sun,city);const physics=new Movement(city.boxes);
 const settings={...defaults,vignette:false};try{const saved=JSON.parse(localStorage.getItem('spidyvr-settings')||'{}');for(const key of ['pull','jump','gravity'])if(Number.isFinite(saved[key]))settings[key]=Math.max(+$(key).min,Math.min(+$(key).max,saved[key]));settings.vignette=!!saved.vignette;}catch{}
 Object.assign(physics.settings,settings);
 function syncSettings(){for(const k of ['pull','jump','gravity']){$(k).value=settings[k];$(k+'Value').value=settings[k];} $('vignette').checked=settings.vignette;Object.assign(physics.settings,settings);try{localStorage.setItem('spidyvr-settings',JSON.stringify(settings));}catch{}}
@@ -91,7 +92,7 @@ $('enterVR').onclick=async()=>{
     session.addEventListener('end',()=>{session=null;active=false;desktop=false;paused=false;releaseAll();rig.rotation.set(0,0,0);camera.position.set(0,1.7,0);camera.rotation.set(-.15,0,0);uiPlaying(false);$('enterVR').disabled=false;$('enterVR').textContent='Enter VR';if(wind)wind.gain.value=0;});
     session.addEventListener('visibilitychange',()=>{releaseAll();lastHead=null;accumulator=0;lastTime=0;if(wind)wind.gain.value=0;});
     session.addEventListener('inputsourceschange',()=>{previousHand.fill(null);});
-    await renderer.xr.setSession(session);renderer.xr.setFoveation(1);uiPlaying(true);
+    await renderer.xr.setSession(session);renderer.xr.setFoveation(visualQuality.foveation);uiPlaying(true);
   }catch(error){if(session){try{await session.end();}catch{}}session=null;active=false;$('status').textContent='Could not enter VR: '+error.message;$('enterVR').disabled=false;uiPlaying(false);}
 };
 if(navigator.xr){navigator.xr.isSessionSupported('immersive-vr').then(ok=>{$('enterVR').disabled=!ok;$('enterVR').textContent=ok?'Enter VR':'Open in Quest Browser';$('status').textContent=ok?'Ready. Put on your headset and enter VR.':'Open this same address in Meta Quest Browser for VR.';}).catch(()=>{$('enterVR').textContent='Open in Quest Browser';$('status').textContent='VR is unavailable in this browser.';});}else{$('enterVR').textContent='Open in Quest Browser';$('status').textContent='For VR, open this link inside your Quest 3 browser.';}
@@ -217,8 +218,9 @@ renderer.setAnimationLoop((milliseconds,frame)=>{
     tips.forEach(h=>h.visible=false);impacts.forEach(h=>h.visible=false);hands.forEach(h=>h.visible=false);webs.forEach(w=>w.visible=false);targets.forEach(t=>t.visible=false);aimLines.forEach(l=>l.visible=false);
   }
   city.update?.(time,active?physics.p:rig.position,paused);
+  quality.update(active?physics.p:rig.position);
   renderer.render(scene,camera);
 });
 
 // Readable module exports also allow the integration harness to drive real input paths.
-export {updateXR,processHand,advanceFlights,drawWebs,updateHud,pause,reset,physics,flights,hands,webs,vrHUD,renderer,scene,city};
+export {updateXR,processHand,advanceFlights,drawWebs,updateHud,pause,reset,physics,flights,hands,webs,vrHUD,renderer,scene,city,quality};

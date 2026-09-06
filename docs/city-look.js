@@ -1,5 +1,6 @@
 import * as T from './vendor/three.module.min.js';
-import {mergeParts,vehicleModel} from './city-models.js';
+import {mergeParts,vehicleModel} from './city-models.js?visual=3';
+import {visualQuality} from './city-quality.js?visual=3';
 const V=(x=0,y=0,z=0)=>new T.Vector3(x,y,z);
 export function facadeMaterial(rows,type){
   let seed=103+type*731;const random=()=>{seed=(seed*1664525+1013904223)>>>0;return seed/4294967296;};
@@ -21,7 +22,7 @@ export function facadeMaterial(rows,type){
     }
   }
   const map=new T.CanvasTexture(canvas),specularMap=new T.CanvasTexture(spec);map.colorSpace=T.SRGBColorSpace;map.anisotropy=4;
-  return new T.MeshPhongMaterial({map,specularMap,specular:0x8a9fa4,shininess:type>=2?65:24});
+  const material=new T.MeshStandardMaterial({map,roughness:type>=2?.3:.82,metalness:type>=2?.4:.03});material.userData.facade={type,rows};specularMap.dispose();return material;
 }
 export function upgradeArchitecture(scene,boxes){
   const chunks=new Map(),box=new T.BoxGeometry(1,1,1),round=new T.CylinderGeometry(1,1,1,8),foliage=new T.IcosahedronGeometry(1,1);
@@ -74,9 +75,9 @@ export function upgradeArchitecture(scene,boxes){
       add([.5,2.8,.18],[x+3,1.55,z+15],0x2c5b73);
     }
   }
-  const material=new T.MeshPhongMaterial({vertexColors:true,shininess:15,specular:0x303d40}),meshes=[];
+  const material=new T.MeshStandardMaterial({vertexColors:true,roughness:.68,metalness:.15}),meshes=[];
   for(const [key,parts] of chunks){const geometry=mergeParts(parts),mesh=new T.Mesh(geometry,material);geometry.computeBoundingBox();mesh.name='architecture-'+key;scene.add(mesh);meshes.push(mesh);}
-  return {meshes,update(viewer){for(const mesh of meshes)mesh.visible=mesh.geometry.boundingBox.distanceToPoint(viewer)<65;}};
+  return {meshes,update(viewer){for(const mesh of meshes)mesh.visible=mesh.geometry.boundingBox.distanceToPoint(viewer)<visualQuality.architectureRange;}};
 }
 export function atmosphere(scene){
   const clock={value:0};
@@ -84,8 +85,8 @@ export function atmosphere(scene){
   let seed=819;const rand=()=>{seed=(seed*1664525+1013904223)>>>0;return seed/4294967296;};
   for(let group=0;group<17;group++){const x=40+rand()*432,y=40+rand()*432;for(let puff=0;puff<12;puff++){const px=x+(rand()-.5)*100,py=y+(rand()-.5)*44,r=10+rand()*26,g=c.createRadialGradient(px,py,0,px,py,r);g.addColorStop(0,'rgba(255,255,255,.55)');g.addColorStop(.55,'rgba(233,239,237,.3)');g.addColorStop(1,'rgba(255,255,255,0)');c.fillStyle=g;c.fillRect(px-r,py-r,2*r,2*r);}}
   const clouds=new T.CanvasTexture(cloudCanvas);clouds.wrapS=clouds.wrapT=T.RepeatWrapping;
-  const sky=new T.Mesh(new T.SphereGeometry(1000,24,12),new T.ShaderMaterial({side:T.BackSide,depthWrite:false,uniforms:{clock,clouds:{value:clouds}},vertexShader:'varying vec3 dir;void main(){dir=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',fragmentShader:`uniform sampler2D clouds;uniform float clock;varying vec3 dir;void main(){vec3 d=normalize(dir);float h=max(0.,d.y);vec3 col=mix(vec3(.73,.79,.79),vec3(.19,.40,.61),pow(h,.55));vec3 sun=normalize(vec3(-.5,.7,.4));float glow=pow(max(0.,dot(d,sun)),12.);col+=vec3(.2,.12,.055)*glow;col+=vec3(.95,.78,.48)*pow(max(0.,dot(d,sun)),1800.);vec2 uv=d.xz/(h+.2)*.16+vec2(clock*.001,0.);float cloud=texture2D(clouds,uv).a*smoothstep(.02,.15,h);col=mix(col,vec3(.92,.93,.9)-texture2D(clouds,uv+vec2(.006)).a*.12,cloud*.92);gl_FragColor=vec4(col,1.);\n#include <tonemapping_fragment>\n#include <colorspace_fragment>\n}`}));sky.name='sky';sky.frustumCulled=false;sky.renderOrder=-10;scene.add(sky);
-  const water=new T.Mesh(new T.PlaneGeometry(2400,2400),new T.ShaderMaterial({uniforms:{clock},vertexShader:'varying vec3 world;void main(){world=(modelMatrix*vec4(position,1.)).xyz;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',fragmentShader:`uniform float clock;varying vec3 world;void main(){vec2 p=world.xz;vec3 n=normalize(vec3(sin(p.x*.32+clock*1.3)*.055+cos(p.y*.13-clock*.8)*.04,1.,cos(p.y*.29+clock)*.06));vec3 v=normalize(cameraPosition-world);float f=pow(1.-max(0.,dot(v,n)),3.);vec3 col=mix(vec3(.035,.18,.21),vec3(.46,.64,.71),.2+f*.8);float glint=pow(max(0.,dot(reflect(-normalize(vec3(-.5,.7,.4)),n),v)),110.);col+=vec3(.9,.76,.45)*glint*.75;float edge=max(abs(p.x),abs(p.y))-260.;float foam=(1.-smoothstep(0.,3.,abs(edge)))*(.5+.5*sin(p.x*2.+p.y*1.7+clock*2.));col=mix(col,vec3(.69,.78,.74),foam*.32);col=mix(col,vec3(.73,.79,.79),smoothstep(350.,1000.,length(cameraPosition-world)));gl_FragColor=vec4(col,1.);\n#include <tonemapping_fragment>\n#include <colorspace_fragment>\n}`}));water.rotation.x=-Math.PI/2;water.position.y=-.3;water.name='harbor-water';scene.add(water);
+  const sky=new T.Mesh(new T.SphereGeometry(1000,24,12),new T.ShaderMaterial({side:T.BackSide,depthWrite:false,uniforms:{clock,clouds:{value:clouds},skyImage:{value:null},hasSkyImage:{value:0}},vertexShader:'varying vec3 dir;void main(){dir=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',fragmentShader:`uniform sampler2D clouds;uniform sampler2D skyImage;uniform float hasSkyImage;uniform float clock;varying vec3 dir;void main(){vec3 d=normalize(dir);float h=max(0.,d.y);vec3 col=mix(vec3(.73,.79,.79),vec3(.19,.40,.61),pow(h,.55));vec3 sun=normalize(vec3(-.53,.225,.82));float glow=pow(max(0.,dot(d,sun)),12.);col+=vec3(.2,.12,.055)*glow;col+=vec3(.95,.78,.48)*pow(max(0.,dot(d,sun)),1800.);vec2 uv=d.xz/(h+.2)*.16+vec2(clock*.001,0.);float cloud=texture2D(clouds,uv).a*smoothstep(.02,.15,h);col=mix(col,vec3(.92,.93,.9)-texture2D(clouds,uv+vec2(.006)).a*.12,cloud*.92);if(hasSkyImage>.5){vec2 imageUV=vec2(atan(d.z,d.x)*.159154943+.5,asin(clamp(d.y,-1.,1.))*.318309886+.5);col=texture2D(skyImage,imageUV).rgb;}gl_FragColor=vec4(col,1.);\n#include <tonemapping_fragment>\n#include <colorspace_fragment>\n}`}));sky.name='sky';sky.frustumCulled=false;sky.renderOrder=-10;scene.add(sky);
+  const water=new T.Mesh(new T.PlaneGeometry(2400,2400,128,128),new T.ShaderMaterial({uniforms:{clock,skyImage:{value:null},hasSkyImage:{value:0}},vertexShader:'uniform float clock;varying vec3 world;void main(){vec3 p=position;world=(modelMatrix*vec4(p,1.)).xyz;float coastal=smoothstep(262.,290.,max(abs(world.x),abs(world.z)));p.z+=(sin(world.x*.06+clock*.8)*.18+sin(world.z*.09-clock*.7)*.12)*coastal;world=(modelMatrix*vec4(p,1.)).xyz;gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.);}',fragmentShader:`uniform float clock;uniform sampler2D skyImage;uniform float hasSkyImage;varying vec3 world;void main(){vec2 p=world.xz;vec3 n=normalize(vec3(sin(p.x*.32+clock*1.3)*.055+cos(p.y*.13-clock*.8)*.04,1.,cos(p.y*.29+clock)*.06+sin(p.x*1.7+p.y*.9+clock*2.)*.012));vec3 v=normalize(cameraPosition-world);float f=pow(1.-max(0.,dot(v,n)),3.);vec3 col=mix(vec3(.035,.18,.21),vec3(.46,.64,.71),.2+f*.8);float glint=pow(max(0.,dot(reflect(-normalize(vec3(-.53,.225,.82)),n),v)),110.);if(hasSkyImage>.5){vec3 reflected=reflect(-v,n);vec2 uv=vec2(atan(reflected.z,reflected.x)*.159154943+.5,asin(clamp(reflected.y,-1.,1.))*.318309886+.5);col=mix(vec3(.018,.095,.105),texture2D(skyImage,uv).rgb,.28+f*.65);}col+=vec3(.9,.76,.45)*glint*.75;float edge=max(abs(p.x),abs(p.y))-260.;float foam=(1.-smoothstep(0.,3.,abs(edge)))*(.5+.5*sin(p.x*2.+p.y*1.7+clock*2.));col=mix(col,vec3(.69,.78,.74),foam*.32);col=mix(col,vec3(.73,.79,.79),smoothstep(350.,1000.,length(cameraPosition-world)));gl_FragColor=vec4(col,1.);\n#include <tonemapping_fragment>\n#include <colorspace_fragment>\n}`}));water.rotation.x=-Math.PI/2;water.position.y=-.3;water.name='harbor-water';scene.add(water);
   const parts=[],box=new T.BoxGeometry(1,1,1);const add=(size,at,color,geo=box)=>parts.push({size,at,color,geo});
   // The city becomes a waterfront island, with promenades and piers at its existing edge.
   for(const sign of [-1,1]){

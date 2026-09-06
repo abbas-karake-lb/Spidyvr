@@ -4,6 +4,7 @@ import {readFileSync} from 'node:fs';
 import * as T from '../docs/vendor/three.module.min.js';
 import {createCity} from '../docs/city.js';
 import {Movement,V} from '../docs/physics.js';
+import {visualQuality} from '../docs/city-quality.js';
 import {canvasContext} from './quest-harness.js';
 globalThis.document={createElement:()=>({width:0,height:0,getContext:canvasContext})};
 const original=JSON.parse(readFileSync(new URL('./fixtures/original-buildings.json',import.meta.url)));
@@ -30,7 +31,7 @@ test('city population animates and reduces detail with 3D distance; geometry sta
   for(let i=0;i<90;i++){time+=1/90;city.update(time,V(0,32,0));}
   assert.notDeepEqual(city.life.pools.carsNear.instanceMatrix.array,before);
   const reports=[];
-  for(const height of [2,32,80,150,240]){time+=.1;city.update(time,V(22,height,22));const stats=budget(scene);reports.push({height,...stats,...city.life.stats});assert.ok(stats.draws<=115);assert.ok(stats.triangles<300000);if(height===240)assert.equal(city.life.stats.pedestrians,0);}
+  for(const height of [2,32,80,150,240]){time+=.1;city.update(time,V(22,height,22));const stats=budget(scene);reports.push({height,...stats,...city.life.stats});assert.ok(stats.draws<=135);assert.ok(stats.triangles<900000,JSON.stringify(stats));if(height===240)assert.equal(city.life.stats.pedestrians,0);}
   city.update(time+.1,V(22,2,22));assert.ok(city.life.pools.peopleNear.count>0);city.update(time+.2,V(22,100,22));assert.equal(city.life.pools.peopleNear.count,0);assert.ok(city.life.pools.peopleFar.count>0);
   // Sidewalk paths must not send people through the preserved building boxes.
   for(let i=0;i<400;i++){time+=.09;city.update(time,V(0,40,0));for(const pool of [city.life.pools.peopleNear,city.life.pools.peopleFar])for(let n=0;n<pool.count;n++){pool.getMatrixAt(n,matrix);const p=new T.Vector3().setFromMatrixPosition(matrix);assert.ok(!city.boxes.some(b=>b.containsPoint(p)));}}
@@ -61,5 +62,5 @@ test('near character skinning supplies finite joint transforms for walking and p
   const mesh=city.life.pools.peopleNear,shader={uniforms:{},vertexShader:T.ShaderLib.lambert.vertexShader,fragmentShader:T.ShaderLib.lambert.fragmentShader};mesh.material.onBeforeCompile(shader);
   const data=shader.uniforms.npcPose.value.image.data;assert.ok(data.every(Number.isFinite));
   for(let j=0;j<15;j++){const offset=(person.id*32+j*2)*4,point=V(...data.slice(offset,offset+3)).multiplyScalar(person.scale).add(person.p);assert.ok(point.distanceTo(person.ragdoll.nodes[j].p)<.001);const quaternion=new T.Quaternion(...data.slice(offset+4,offset+8));assert.ok(Math.abs(quaternion.length()-1)<.001);}
-  assert.ok(mesh.count<=48);assert.ok(city.architecture.meshes.some(m=>!m.visible));
+  assert.ok(mesh.count<=visualQuality.crowdCapacity);assert.ok(city.architecture.meshes.some(m=>!m.visible));
 });

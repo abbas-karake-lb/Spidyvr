@@ -1,11 +1,12 @@
 import * as T from './vendor/three.module.min.js';
-import {mergeParts,vehicleModel,personModel,dogModel,bodyPoints} from './city-models.js';
+import {mergeParts,vehicleModel,personModel,dogModel,bodyPoints} from './city-models.js?visual=3';
+import {vehicleMaterial,visualQuality} from './city-quality.js?visual=3';
 import {NPCPhysics} from './npc-physics.js';
 const V=(x=0,y=0,z=0)=>new T.Vector3(x,y,z),UP=V(0,1,0);
 export function createCityLife(scene,boxes,parked=[]){
   let seed=8804;const rand=()=>{seed=(seed*1664525+1013904223)>>>0;return seed/4294967296;};
   const dummy=new T.Object3D(),color=new T.Color(),timeUniform={value:0};
-  const material=new T.MeshPhongMaterial({vertexColors:true,shininess:38,specular:0x45565b});
+  const material=vehicleMaterial(timeUniform);
   function pool(name,geometry,mat,count){const mesh=new T.InstancedMesh(geometry,mat,count);mesh.name=name;mesh.instanceMatrix.setUsage(T.DynamicDrawUsage);mesh.count=0;mesh.frustumCulled=false;scene.add(mesh);return mesh;}
   const carsNear=Array.from({length:5},(_,type)=>pool('traffic-near-'+type,vehicleModel(type),material,92));
   const carsFar=Array.from({length:5},(_,type)=>pool('traffic-far-'+type,vehicleModel(type,true),material,92));
@@ -20,7 +21,7 @@ export function createCityLife(scene,boxes,parked=[]){
   const npcs=new NPCPhysics(people,boxes);
   // One float texture holds poses for the nearby skinned crowd and active ragdolls.
   const poseData=new Float32Array(32*people.length*4),poseTexture=new T.DataTexture(poseData,32,people.length,T.RGBAFormat,T.FloatType);poseTexture.minFilter=poseTexture.magFilter=T.NearestFilter;poseTexture.generateMipmaps=false;
-  const humanMaterial=new T.MeshLambertMaterial({vertexColors:true});
+  const humanMaterial=new T.MeshStandardMaterial({vertexColors:true,roughness:.86,metalness:0});
   const restFunction='vec3 restPoint(float n){'+bodyPoints.map((v,i)=>`if(n<${i}.5)return vec3(${v.map(x=>Number(x).toFixed(3)).join(',')});`).join('')+'return vec3(0.0); }';
   humanMaterial.onBeforeCompile=shader=>{
     shader.uniforms.npcPose={value:poseTexture};shader.uniforms.npcRows={value:people.length};
@@ -29,8 +30,8 @@ export function createCityLife(scene,boxes,parked=[]){
     shader.vertexShader=shader.vertexShader.replace('#include <beginnormal_vertex>','#include <beginnormal_vertex>\nobjectNormal=rotateBone(boneData(limb*2.0+1.0),objectNormal);');
     shader.vertexShader=shader.vertexShader.replace('#include <color_vertex>','#include <color_vertex>\nif(color.r>.9)vColor.rgb=npcShirt;else if(color.r>.45&&color.g>.2&&color.b<.3)vColor.rgb=npcSkin;');
   };humanMaterial.customProgramCacheKey=()=> 'npc-articulated-v1';
-  const nearGeo=personModel(),peopleNear=pool('people-near',nearGeo,humanMaterial,48),peopleFar=pool('people-far',personModel(true),new T.MeshLambertMaterial({vertexColors:true}),288);
-  for(const [name,size] of [['npcIndex',1],['npcShirt',3],['npcSkin',3]])nearGeo.setAttribute(name,new T.InstancedBufferAttribute(new Float32Array(48*size),size).setUsage(T.DynamicDrawUsage));
+  const nearGeo=personModel(),peopleNear=pool('people-near',nearGeo,humanMaterial,visualQuality.crowdCapacity),peopleFar=pool('people-far',personModel(true),new T.MeshLambertMaterial({vertexColors:true}),288);
+  for(const [name,size] of [['npcIndex',1],['npcShirt',3],['npcSkin',3]])nearGeo.setAttribute(name,new T.InstancedBufferAttribute(new Float32Array(visualQuality.crowdCapacity*size),size).setUsage(T.DynamicDrawUsage));
   const dogMat=new T.MeshLambertMaterial({vertexColors:true});dogMat.onBeforeCompile=shader=>{shader.uniforms.lifeTime=timeUniform;shader.vertexShader='uniform float lifeTime;attribute float limb;\n'+shader.vertexShader;shader.vertexShader=shader.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\nif(limb>.5)transformed.z+=sin(lifeTime*8.0+limb*3.14+instanceMatrix[3].x)*.12;');};dogMat.customProgramCacheKey=()=> 'dog-gait-v1';
   const dogs=pool('dogs',dogModel(),dogMat,24);
   const birdGeo=mergeParts([{size:[.12,.12,.45],color:0x45535a},{size:[.55,.04,.23],at:[-.32,0,0],color:0x8d9695,limb:1},{size:[.55,.04,.23],at:[.32,0,0],color:0x8d9695,limb:2}]);
@@ -74,7 +75,7 @@ export function createCityLife(scene,boxes,parked=[]){
         const f=turn.t;car.p.copy(turn.start).multiplyScalar((1-f)*(1-f)).addScaledVector(turn.control,2*(1-f)*f).addScaledVector(turn.end,f*f);
         a.copy(turn.control).sub(turn.start).multiplyScalar(1-f).addScaledVector(b.copy(turn.end).sub(turn.control),f);car.angle=Math.atan2(-a.x,-a.z);
         if(f===1){Object.assign(car,turn.next);car.turn=null;}
-        const distance=car.p.distanceToSquared(viewer);if(distance<360**2)write(distance<85**2?carsNear[car.type]:carsFar[car.type],car.p,car.angle,car.type===4?0xe4b64d:car.color);
+        const distance=car.p.distanceToSquared(viewer);if(distance<360**2)write(distance<visualQuality.vehicleRange**2?carsNear[car.type]:carsFar[car.type],car.p,car.angle,car.type===4?0xe4b64d:car.color);
         continue;
       }
       let gap=Infinity;for(const lead of traffic)if(lead!==car&&!lead.turn&&lead.horizontal===car.horizontal&&lead.lane===car.lane&&lead.sign===car.sign){const d=lead.progress-car.progress;if(d>0)gap=Math.min(gap,d-(lead.type===3?6:4.7));}
@@ -95,9 +96,9 @@ export function createCityLife(scene,boxes,parked=[]){
         if(!traffic.some(other=>other!==car&&other.p.distanceToSquared(end)<5**2))car.turn={start:car.p.clone(),control,end,t:0,length:Math.max(5,car.p.distanceTo(control)+control.distanceTo(end)),next:{horizontal,sign,lane:newLane,progress:endAlong*sign}};
         else if(Math.abs(cross)>=241)car.speed=0;
       }
-      const distance=car.p.distanceToSquared(viewer);if(distance<360**2)write(distance<85**2?carsNear[car.type]:carsFar[car.type],car.p,car.angle,car.type===4?0xe4b64d:car.color);
+      const distance=car.p.distanceToSquared(viewer);if(distance<360**2)write(distance<visualQuality.vehicleRange**2?carsNear[car.type]:carsFar[car.type],car.p,car.angle,car.type===4?0xe4b64d:car.color);
     }
-    for(const car of parked){const distance=car.p.distanceToSquared(viewer);if(distance<320**2)write(distance<65**2?parkedNear[car.type]:parkedFar[car.type],car.p,car.angle,car.color);}
+    for(const car of parked){const distance=car.p.distanceToSquared(viewer);if(distance<320**2)write(distance<visualQuality.vehicleRange**2?parkedNear[car.type]:parkedFar[car.type],car.p,car.angle,car.color);}
     const near=[];
     for(const p of people){
       if(!p.ragdoll){
@@ -117,11 +118,11 @@ export function createCityLife(scene,boxes,parked=[]){
         }
       }
       const distance=p.p.distanceToSquared(viewer);
-      if(npcs.isHeld(p)||distance<55**2||p.ragdoll&&distance<230**2)near.push({p,distance});
+      if(npcs.isHeld(p)||distance<visualQuality.crowdRange**2||p.ragdoll&&distance<230**2)near.push({p,distance});
       else if(distance<225**2)write(peopleFar,p.p,p.yaw,p.color,p.scale);
     }
     near.sort((a,b)=>Number(!!b.p.ragdoll)-Number(!!a.p.ragdoll)||a.distance-b.distance);
-    for(let i=0;i<near.length;i++){const p=near[i].p;if(peopleNear.count>=48){if(!p.ragdoll)write(peopleFar,p.p,p.yaw,p.color,p.scale);continue;}
+    for(let i=0;i<near.length;i++){const p=near[i].p;if(peopleNear.count>=visualQuality.crowdCapacity){if(!p.ragdoll)write(peopleFar,p.p,p.yaw,p.color,p.scale);continue;}
       const index=peopleNear.count;uploadPose(p,t,viewer);nearGeo.attributes.npcIndex.setX(index,p.id);color.set(p.color);nearGeo.attributes.npcShirt.setXYZ(index,color.r,color.g,color.b);color.set(p.skin);nearGeo.attributes.npcSkin.setXYZ(index,color.r,color.g,color.b);write(peopleNear,p.p,0,0xffffff,p.scale);
     }
     for(let i=0;i<24;i++){const owner=people[(i*13+26)%people.length];if(owner.ragdoll)continue;position.copy(owner.p).add(V(.55,0,.1).applyAxisAngle(UP,owner.yaw));if(position.distanceToSquared(viewer)<130**2)write(dogs,position,owner.yaw,[0x9d7d53,0xd2cab7,0x57514a,0xb89d7a][i%4],.8+(i%4)*.1);}

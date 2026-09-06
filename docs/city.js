@@ -1,7 +1,8 @@
 import * as T from './vendor/three.module.min.js';
-import {enrichCity} from './city-detail.js?city=2';
-import {createCityLife} from './city-life.js?city=2';
-import {facadeMaterial,upgradeArchitecture,atmosphere,bakedShadows} from './city-look.js';
+import {enrichCity} from './city-detail.js?city=3';
+import {createCityLife} from './city-life.js?city=3';
+import {facadeMaterial,upgradeArchitecture,atmosphere,bakedShadows} from './city-look.js?visual=3';
+import {surfaceMaterial,foliageCrown} from './city-quality.js?visual=3';
 export function createCity(scene){
   let seed=7301;const rand=()=>{seed=(seed*1664525+1013904223)>>>0;return seed/4294967296;};
   const boxGeo=new T.BoxGeometry(1,1,1),dummy=new T.Object3D(),boxes=[];
@@ -12,10 +13,11 @@ export function createCity(scene){
     batches.get(key).items.push({x,y,z,w,h,d,color,rotation});
   }
   const solid=c=>new T.MeshLambertMaterial({color:c});
-  const roof=solid(0x737d82),sidewalk=solid(0xbcc0bc),asphalt=solid(0x394650),grass=solid(0x66856a),trunk=solid(0x6e5542),leaf=solid(0x547a59);
+  const crown=foliageCrown();
+  const roof=surfaceMaterial('roof'),sidewalk=surfaceMaterial('paving'),asphalt=surfaceMaterial('asphalt'),grass=solid(0x66856a),trunk=solid(0x6e5542),leaf=crown.material;
   const roadCanvas=document.createElement('canvas');roadCanvas.width=roadCanvas.height=256;const roadContext=roadCanvas.getContext('2d');roadContext.fillStyle='#51585a';roadContext.fillRect(0,0,256,256);
   let surfaceSeed=733;for(let i=0;i<4500;i++){surfaceSeed=(surfaceSeed*1664525+1013904223)>>>0;const x=surfaceSeed%256,y=(surfaceSeed>>>8)%256;roadContext.fillStyle=i%2?'#5b6262':'#474f52';roadContext.fillRect(x,y,1,1);}
-  const roadTexture=new T.CanvasTexture(roadCanvas);roadTexture.colorSpace=T.SRGBColorSpace;roadTexture.wrapS=roadTexture.wrapT=T.RepeatWrapping;roadTexture.repeat.set(64,64);roadTexture.anisotropy=4;asphalt.map=roadTexture;asphalt.color.set(0xffffff);
+  const roadTexture=new T.CanvasTexture(roadCanvas);roadTexture.colorSpace=T.SRGBColorSpace;roadTexture.wrapS=roadTexture.wrapT=T.RepeatWrapping;roadTexture.repeat.set(64,64);roadTexture.anisotropy=4;roadTexture.dispose();
   const floor=new T.Mesh(new T.PlaneGeometry(500,500),asphalt);floor.rotation.x=-Math.PI/2;floor.position.y=-.04;scene.add(floor);
   function facade(rows){
     const canvas=document.createElement('canvas');canvas.width=256;canvas.height=rows*32;
@@ -49,7 +51,7 @@ export function createCity(scene){
     addBatch('roof-unit',boxGeo,solidUnit,x+2,h+1,z+1,3,2,4);
     if(h>75)addBatch('antenna',boxGeo,roof,x,h+4,z,.2,8,.2);
   }
-  const solidUnit=solid(0xb3b9b8),barkGeo=new T.CylinderGeometry(.3,.4,1,6),leafGeo=new T.IcosahedronGeometry(1,1);
+  const solidUnit=solid(0xb3b9b8),barkGeo=new T.CylinderGeometry(.3,.4,1,6),leafGeo=crown.geometry;
   const roadMark=solid(0xdac990),white=solid(0xe1e3d8);
   for(let ix=-5;ix<=5;ix++)for(let iz=-5;iz<=5;iz++){
     const x=ix*44,z=iz*44;
@@ -84,7 +86,7 @@ export function createCity(scene){
   let signals=null;
   for(const [name,{geo,mat,items}] of batches){
     const mesh=new T.InstancedMesh(geo,mat,items.length);
-    items.forEach((o,i)=>{dummy.position.set(o.x,o.y,o.z);dummy.scale.set(o.w,o.h,o.d);dummy.rotation.set(0,o.rotation,0);dummy.updateMatrix();mesh.setMatrixAt(i,dummy.matrix);mesh.setColorAt(i,new T.Color(o.color));});
+    items.forEach((o,i)=>{dummy.position.set(o.x,o.y,o.z);dummy.scale.set(o.w,o.h,o.d);dummy.rotation.set(0,o.rotation,0);dummy.updateMatrix();mesh.setMatrixAt(i,dummy.matrix);mesh.setColorAt(i,new T.Color(o.color).lerp(new T.Color(0xffffff),name.startsWith('buildings')?.75:0));});
     mesh.name=name;mesh.computeBoundingSphere();scene.add(mesh);if(name==='signal-lights')signals=mesh;
   }
   // Clearly visible rooftop starting pad.
