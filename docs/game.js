@@ -1,6 +1,7 @@
 import * as T from './vendor/three.module.min.js';
 import {Movement,V,defaults} from './physics.js';
 import {createCity} from './city.js';
+import {turnDelta,WebFlight,showVRPanel} from './traversal.js';
 const $=id=>document.getElementById(id);
 const scene=new T.Scene();scene.background=new T.Color(0xa3c3d4);scene.fog=new T.Fog(0xa3c3d4,150,550);
 scene.add(new T.HemisphereLight(0xe6f3ff,0x667268,2.2));
@@ -17,18 +18,23 @@ const settings={...defaults,vignette:false};try{const saved=JSON.parse(localStor
 Object.assign(physics.settings,settings);
 function syncSettings(){for(const k of ['pull','jump','gravity']){$(k).value=settings[k];$(k+'Value').value=settings[k];} $('vignette').checked=settings.vignette;Object.assign(physics.settings,settings);try{localStorage.setItem('spidyvr-settings',JSON.stringify(settings));}catch{}}
 syncSettings();for(const k of ['pull','jump','gravity'])$(k).oninput=()=>{settings[k]=+$(k).value;syncSettings();};$('vignette').onchange=()=>{settings.vignette=$('vignette').checked;syncSettings();};$('resetSettings').onclick=()=>{Object.assign(settings,defaults,{vignette:false});syncSettings();};
-let session=null,active=false,paused=false,desktop=false,lastTime=0,accumulator=0,yaw=0,pitch=-.15,turnLatch=false,charge=0,jumpHeld=false;
+let session=null,active=false,paused=false,desktop=false,lastTime=0,accumulator=0,yaw=0,pitch=-.15,charge=0,jumpHeld=false;
 let headLocal=V(),lastHead=null,roomY=0,lastHud=0,overlayTimer=10,audio=null,wind=null;
 const keys=new Set(),mouse=[false,false],reels=[false,false],worldUp=V(0,1,0);
 const ray=new T.Ray(),hit=V(),origin=V(),direction=V(),handOffset=[V(-.25,1.35,-.4),V(.25,1.35,-.4)];
 const previousHand=[null,null],buttonHistory=[[],[]],sources=[null,null],triggerHeld=[false,false],tracked=[false,false];
-const hands=[],webs=[],targets=[],aimLines=[];
+const hands=[],webs=[],targets=[],aimLines=[],tips=[],impacts=[];
+const flights=[new WebFlight(),new WebFlight()],flashTimers=[0,0],impactTimers=[0,0];
+const shooterOffset=V(0,.05,-.015),shooterWorld=[V(),V()];
+let shotBuffer=null;const shotPanners=[],shotVoices=[];
 for(let i=0;i<2;i++){
   const group=new T.Group();
   const glove=new T.Mesh(new T.SphereGeometry(.065,12,8),new T.MeshLambertMaterial({color:i===0?0xd44a49:0x4d91b5}));glove.scale.set(1,.85,1.5);group.add(glove);
   const cuff=new T.Mesh(new T.CylinderGeometry(.055,.06,.09,10),new T.MeshLambertMaterial({color:0x1f3445}));cuff.rotation.x=Math.PI/2;cuff.position.z=.09;group.add(cuff);
   const emitter=new T.Mesh(new T.SphereGeometry(.018,8,6),new T.MeshBasicMaterial({color:0x9effe6}));emitter.position.set(0,.05,-.015);group.add(emitter);
   scene.add(group);group.visible=false;hands.push(group);
+  const tip=new T.Mesh(new T.IcosahedronGeometry(.085,0),new T.MeshBasicMaterial({color:0xebfff9}));tip.visible=false;scene.add(tip);tips.push(tip);
+  const impact=new T.Mesh(new T.RingGeometry(.15,.23,16),new T.MeshBasicMaterial({color:0xd9fff0,side:T.DoubleSide,transparent:true,depthWrite:false}));impact.visible=false;scene.add(impact);impacts.push(impact);
   const web=new T.Mesh(new T.CylinderGeometry(1,1,1,6),new T.MeshBasicMaterial({color:i===0?0xe0fff5:0xd6eeff}));web.visible=false;web.frustumCulled=false;scene.add(web);webs.push(web);
   const target=new T.Mesh(new T.SphereGeometry(.18,12,8),new T.MeshBasicMaterial({color:0x8cffe2,depthTest:false,transparent:true,opacity:.85}));target.visible=false;target.renderOrder=5;scene.add(target);targets.push(target);
   const beam=new T.Line(new T.BufferGeometry().setFromPoints([V(),V()]),new T.LineBasicMaterial({color:i===0?0x9bffe2:0x99d9ff,transparent:true,opacity:.3}));beam.visible=false;beam.frustumCulled=false;scene.add(beam);aimLines.push(beam);
@@ -37,10 +43,41 @@ function cast(o,d,max=170){ray.set(o,d);let nearest=max,point=null;for(const box
 function pulse(i,power=.4,duration=35){try{sources[i]?.gamepad?.hapticActuators?.[0]?.pulse(power,duration)?.catch(()=>{});}catch{}}
 function sound(freq=380){if(!audio)return;try{const osc=audio.createOscillator(),gain=audio.createGain();osc.frequency.setValueAtTime(freq,audio.currentTime);osc.frequency.exponentialRampToValueAtTime(freq*.35,audio.currentTime+.12);gain.gain.setValueAtTime(.06,audio.currentTime);gain.gain.exponentialRampToValueAtTime(.001,audio.currentTime+.14);osc.connect(gain).connect(audio.destination);osc.start();osc.stop(audio.currentTime+.15);}catch{}}
 async function startAudio(){try{if(!audio){audio=new AudioContext();const buffer=audio.createBuffer(1,audio.sampleRate*2,audio.sampleRate),data=buffer.getChannelData(0);for(let i=0;i<data.length;i++)data[i]=(Math.random()-.5)*.3;const noise=audio.createBufferSource();noise.buffer=buffer;noise.loop=true;const filter=audio.createBiquadFilter();filter.type='lowpass';filter.frequency.value=600;wind=audio.createGain();wind.gain.value=0;noise.connect(filter).connect(wind).connect(audio.destination);noise.start();}await audio.resume();}catch{}}
-function releaseAll(){for(let i=0;i<2;i++){physics.release(i);previousHand[i]=null;triggerHeld[i]=false;reels[i]=false;mouse[i]=false;}keys.clear();jumpHeld=false;charge=0;}
+// Two reusable spatial panners, and a shared synthesized "thwip" sample.
+function fireSound(i,position){
+  if(!audio)return;
+  try{
+    if(!shotBuffer){shotBuffer=audio.createBuffer(1,Math.ceil(audio.sampleRate*.14),audio.sampleRate);const data=shotBuffer.getChannelData(0);let phase=0;for(let n=0;n<data.length;n++){const t=n/audio.sampleRate;phase+=2*Math.PI*(2100*Math.exp(-t*24)+180)/audio.sampleRate;data[n]=(Math.sin(phase)*.45+(Math.random()*2-1)*.35)*Math.exp(-t*36)*Math.min(1,t/.002);}}
+    if(!shotPanners[i]){const p=audio.createPanner();p.panningModel='HRTF';p.distanceModel='inverse';p.refDistance=1;p.rolloffFactor=.35;p.connect(audio.destination);shotPanners[i]=p;}
+    shotVoices[i]?.stop();const source=audio.createBufferSource();source.buffer=shotBuffer;source.connect(shotPanners[i]);shotVoices[i]=source;
+    const p=shotPanners[i];p.positionX.value=position.x;p.positionY.value=position.y;p.positionZ.value=position.z;
+    source.onended=()=>{source.disconnect();if(shotVoices[i]===source)shotVoices[i]=null;};source.start();
+  }catch{}
+}
+function updateAudioPose(position,quaternion){
+  if(!audio)return;const listener=audio.listener,forward=V(0,0,-1).applyQuaternion(quaternion),up=V(0,1,0).applyQuaternion(quaternion);
+  if(listener.positionX){for(const axis of ['x','y','z']){const suffix=axis.toUpperCase();listener['position'+suffix].value=position[axis];listener['forward'+suffix].value=forward[axis];listener['up'+suffix].value=up[axis];}}
+  else{listener.setPosition(position.x,position.y,position.z);listener.setOrientation(forward.x,forward.y,forward.z,up.x,up.y,up.z);}
+  for(let i=0;i<2;i++)if(shotPanners[i]){const p=shotPanners[i],v=shooterWorld[i];p.positionX.value=v.x;p.positionY.value=v.y;p.positionZ.value=v.z;}
+}
+function surfaceNormal(point){
+  for(const box of city.boxes)if(point.x>=box.min.x-.02&&point.x<=box.max.x+.02&&point.y>=box.min.y-.02&&point.y<=box.max.y+.02&&point.z>=box.min.z-.02&&point.z<=box.max.z+.02){for(const axis of ['x','y','z'])for(const side of ['min','max'])if(Math.abs(point[axis]-box[side][axis])<.02){const normal=V();normal[axis]=side==='min'?-1:1;return normal;}}
+  return V(0,1,0);
+}
+function cancelWeb(i){physics.release(i);flights[i].cancel();impactTimers[i]=0;flashTimers[i]=0;}
+function advanceFlights(dt){for(let i=0;i<2;i++){
+  flashTimers[i]=Math.max(0,flashTimers[i]-dt);impactTimers[i]=Math.max(0,impactTimers[i]-dt);
+  if(flights[i].advance(dt)&&triggerHeld[i]&&!paused){
+    const from=physics.p.clone().add(handOffset[i]),to=flights[i].target,toward=to.clone().sub(from),block=cast(from,toward.clone().normalize(),toward.length());
+    if(block&&block.distanceTo(to)>.8)continue;
+    physics.attach(i,to,handOffset[i]);pulse(i,.45,40);
+    const normal=surfaceNormal(to);impacts[i].position.copy(to).addScaledVector(normal,.06);impacts[i].quaternion.setFromUnitVectors(V(0,0,1),normal);impactTimers[i]=.18;
+  }
+}}
+function releaseAll(){for(let i=0;i<2;i++){cancelWeb(i);previousHand[i]=null;triggerHeld[i]=false;reels[i]=false;mouse[i]=false;}keys.clear();jumpHeld=false;charge=0;}
 function reset(){releaseAll();physics.reset();lastHead=null;overlayTimer=8;sound(280);}
-function uiPlaying(playing){document.body.classList.toggle('playing',playing);$('menu').hidden=playing;$('footer').hidden=playing;$('hud').hidden=!playing;$('hint').hidden=!playing;$('crosshair').hidden=!playing||!!session;$('menuButton').hidden=!playing||!!session;}
-function pause(value){paused=value;releaseAll();if(wind)wind.gain.value=0;overlayTimer=value?999:6;if(desktop)uiPlaying(!value);}
+function uiPlaying(playing){document.body.classList.toggle('playing',playing);$('menu').hidden=playing;$('footer').hidden=playing;$('hud').hidden=!playing||!!session;$('hint').hidden=!playing||!!session;$('crosshair').hidden=!playing||!!session;$('menuButton').hidden=!playing||!!session;}
+function pause(value){paused=value;vrHUD.visible=showVRPanel(!!session,paused);lastHud=-1;releaseAll();if(wind)wind.gain.value=0;overlayTimer=value?999:6;if(desktop)uiPlaying(!value);}
 $('menuButton').onclick=()=>{document.exitPointerLock?.();pause(true);};
 $('desktop').onclick=()=>{startAudio();if(session)return;desktop=true;active=true;paused=false;uiPlaying(true);camera.position.set(0,1.7,0);renderer.domElement.requestPointerLock?.();};
 $('enterVR').onclick=async()=>{
@@ -73,7 +110,7 @@ const vrHUD=new T.Mesh(new T.PlaneGeometry(1.1,.55),new T.MeshBasicMaterial({map
 const comfortGeo=new T.RingGeometry(.36,3,64);const comfort=new T.Mesh(comfortGeo,new T.MeshBasicMaterial({color:0x091721,transparent:true,opacity:0,depthTest:false,side:T.DoubleSide}));comfort.renderOrder=19;scene.add(comfort);comfort.visible=false;
 function updateHud(time,headPos,headQuat){
   const speed=physics.v.length(),ropeCount=physics.ropes.filter(Boolean).length;
-  if(time-lastHud>.15){lastHud=time;$('speed').textContent=Math.round(speed*3.6);$('altitude').textContent=Math.round(physics.p.y);$('ropeStatus').textContent=ropeCount?`${ropeCount} WEB${ropeCount===2?'S':''} ATTACHED`:'WEBS READY';
+  if((!session||paused)&&time-lastHud>.15){lastHud=time;$('speed').textContent=Math.round(speed*3.6);$('altitude').textContent=Math.round(physics.p.y);$('ropeStatus').textContent=ropeCount?`${ropeCount} WEB${ropeCount===2?'S':''} ATTACHED`:'WEBS READY';
     ctx.clearRect(0,0,1024,512);ctx.fillStyle='rgba(9,25,34,.82)';ctx.fillRect(0,0,1024,512);ctx.strokeStyle='#85efd4';ctx.lineWidth=4;ctx.strokeRect(2,2,1020,508);
     ctx.fillStyle='#a0ffe4';ctx.font='bold 43px sans-serif';ctx.fillText(paused?'PAUSED · Y TO RESUME':'SPIDYVR',32,60);
     ctx.fillStyle='white';ctx.font='30px sans-serif';ctx.fillText(`${Math.round(speed*3.6)} km/h     ${Math.round(physics.p.y)} m     ${ropeCount}/2 webs`,32,108);
@@ -81,7 +118,7 @@ function updateHud(time,headPos,headQuat){
     const lines=paused||overlayTimer>0?['TRIGGER hold web · release to fly','PULL hand back → launch forward','PULL hand down → launch upward','GRIP reel in · A hold/release jump','Left stick move · Right stick turn','B reset · X pull power · Y pause']:[`Pull power ${settings.pull}  ·  X to change`,charge>0?`JUMP CHARGING ${Math.round(charge*100)}%`:'Pull fast. Release at the top of your swing.','Y for controls'];
     lines.forEach((line,i)=>ctx.fillText(line,32,165+i*49));hudTexture.needsUpdate=true;
   }
-  vrHUD.visible=!!session;comfort.visible=!!session&&settings.vignette&&!paused;
+  vrHUD.visible=showVRPanel(!!session,paused);comfort.visible=!!session&&settings.vignette&&!paused;
   if(session){const offset=V(0,paused?-.08:-.36,-1.3).applyQuaternion(headQuat);vrHUD.position.copy(headPos).add(offset);vrHUD.quaternion.copy(headQuat);vrHUD.scale.setScalar(paused||overlayTimer>0?1:.6);comfort.position.copy(headPos).add(V(0,0,-.42).applyQuaternion(headQuat));comfort.quaternion.copy(headQuat);comfort.material.opacity=Math.min(.86,Math.max(0,(speed-7)/24));}
   $('charge').hidden=charge<=0||!!session;$('charge').firstElementChild.style.width=`${charge*100}%`;
 }
@@ -89,28 +126,34 @@ const yawQuat=new T.Quaternion(),headQuat=new T.Quaternion(),headWorld=V(),moveW
 function processHand(i,o,d,offset,pressed,grip,delta,dt){
   handOffset[i].copy(offset);if(physics.ropes[i])physics.ropes[i].hand.copy(offset);
   const target=cast(o,d);targets[i].visible=!!target;if(target)targets[i].position.copy(target);
-  const line=aimLines[i];line.visible=!!session&&!physics.ropes[i]&&!paused;
+  const line=aimLines[i];line.visible=!!session&&!physics.ropes[i]&&!flights[i].active&&!paused;
   const arr=line.geometry.attributes.position;arr.setXYZ(0,o.x,o.y,o.z);const end=target||o.clone().addScaledVector(d,6);arr.setXYZ(1,end.x,end.y,end.z);arr.needsUpdate=true;
-  if(pressed&&!triggerHeld[i]&&!paused){if(target){physics.attach(i,target,offset);pulse(i);sound(520);}else pulse(i,.15,18);}
-  if(!pressed&&triggerHeld[i])physics.release(i);
+  if(pressed&&!triggerHeld[i]&&!paused){
+    shooterWorld[i].copy(shooterOffset).applyQuaternion(hands[i].quaternion).add(physics.p).add(offset);
+    fireSound(i,shooterWorld[i]);flashTimers[i]=.07;
+    if(target){flights[i].fire(shooterWorld[i],target);pulse(i,.22,20);}else pulse(i,.15,18);
+  }
+  if(!pressed&&triggerHeld[i])cancelWeb(i);
   triggerHeld[i]=pressed;reels[i]=grip&&!paused;
   if(physics.ropes[i]&&delta&&!paused){const power=physics.pull(i,delta,dt);if(power>.22)pulse(i,Math.min(.7,power*.12),18);}
 }
 function buttonEdge(i,buttons,index){const now=!!buttons[index]?.pressed,edge=now&&!buttonHistory[i][index];buttonHistory[i][index]=now;return edge;}
-function turn(angle){yaw+=angle;const q=new T.Quaternion().setFromAxisAngle(worldUp,angle);physics.v.applyQuaternion(q);previousHand.fill(null);}
 function updateXR(frame,dt){
   const reference=renderer.xr.getReferenceSpace(),viewer=frame.getViewerPose(reference);if(!viewer){releaseAll();lastHead=null;return false;}
+  sources.fill(null);for(const source of session.inputSources){if(source.handedness==='left')sources[0]=source;if(source.handedness==='right')sources[1]=source;}
+  const turnPad=sources[1]?.gamepad;
+  if(!paused&&turnPad)yaw+=turnDelta(turnPad.axes.length>=4?turnPad.axes[2]:turnPad.axes[0]||0,dt);
   const pose=viewer.transform;headLocal.set(pose.position.x,pose.position.y,pose.position.z);
   yawQuat.setFromAxisAngle(worldUp,yaw);headQuat.set(pose.orientation.x,pose.orientation.y,pose.orientation.z,pose.orientation.w).premultiply(yawQuat);
   if(lastHead&&!paused){const walk=headLocal.clone().sub(lastHead);walk.y=0;if(walk.length()<.3)physics.move(walk.applyQuaternion(yawQuat));}
   lastHead=headLocal.clone();roomY=headLocal.y;physics.height=Math.max(.8,Math.min(2.3,roomY));
-  sources.fill(null);for(const source of session.inputSources){if(source.handedness==='left')sources[0]=source;if(source.handedness==='right')sources[1]=source;}
+
   moveWish.set(0,0,0);let wantsJump=false;
   for(let i=0;i<2;i++){
     const source=sources[i],gp=source?.gamepad;
-    if(!source||!gp){physics.release(i);previousHand[i]=null;hands[i].visible=false;tracked[i]=false;triggerHeld[i]=false;buttonHistory[i]=[];continue;}
+    if(!source||!gp){cancelWeb(i);previousHand[i]=null;hands[i].visible=false;tracked[i]=false;triggerHeld[i]=false;buttonHistory[i]=[];continue;}
     const targetPose=frame.getPose(source.targetRaySpace,reference),gripPose=source.gripSpace?frame.getPose(source.gripSpace,reference):targetPose;
-    if(!targetPose||!gripPose){physics.release(i);previousHand[i]=null;hands[i].visible=false;tracked[i]=false;triggerHeld[i]=false;continue;}
+    if(!targetPose||!gripPose){cancelWeb(i);previousHand[i]=null;hands[i].visible=false;tracked[i]=false;triggerHeld[i]=false;continue;}
     tracked[i]=true;
     const p=gripPose.transform.position,orientation=gripPose.transform.orientation;
     const relative=V(p.x-headLocal.x,p.y-headLocal.y,p.z-headLocal.z);
@@ -121,7 +164,7 @@ function updateXR(frame,dt){
     origin.set(rp.x-headLocal.x,rp.y,rp.z-headLocal.z).applyQuaternion(yawQuat).add(physics.p);
     direction.set(0,0,-1).applyQuaternion(new T.Quaternion(rq.x,rq.y,rq.z,rq.w)).applyQuaternion(yawQuat);
     const buttons=gp.buttons;
-    if(i===1){wantsJump=!!buttons[4]?.pressed;if(buttonEdge(i,buttons,5)){reset();}const axis=gp.axes.length>=4?gp.axes[2]:gp.axes[0]||0;if(Math.abs(axis)>.7&&!turnLatch){turn(-Math.sign(axis)*Math.PI/6);turnLatch=true;}if(Math.abs(axis)<.25)turnLatch=false;}
+    if(i===1){wantsJump=!!buttons[4]?.pressed;if(buttonEdge(i,buttons,5)){reset();}}
     else {if(buttonEdge(i,buttons,4)){settings.pull=settings.pull<20?22:settings.pull<30?34:14;syncSettings();overlayTimer=6;pulse(i);}if(buttonEdge(i,buttons,5))pause(!paused);const x=gp.axes.length>=4?gp.axes[2]:gp.axes[0]||0,z=gp.axes.length>=4?gp.axes[3]:gp.axes[1]||0;moveWish.set(Math.abs(x)>.15?x:0,0,Math.abs(z)>.15?z:0);}
     processHand(i,origin,direction,offset,!!buttons[0]?.pressed,!!buttons[1]?.pressed,delta,dt);
   }
@@ -141,24 +184,33 @@ function drawWebs(){for(let i=0;i<2;i++){
   let r=physics.ropes[i];const mesh=webs[i];
   if(r){const start=physics.p.clone().add(r.hand),toward=r.anchor.clone().sub(start),length=toward.length();const block=cast(start,toward.normalize(),length);if(block&&block.distanceTo(r.anchor)>.8){physics.release(i);pulse(i,.2,25);r=null;}}
   mesh.visible=!!r;
-  if(r){const from=physics.p.clone().add(r.hand),vector=r.anchor.clone().sub(from),length=vector.length();mesh.position.copy(from).addScaledVector(vector,.5);mesh.quaternion.setFromUnitVectors(worldUp,vector.normalize());mesh.scale.set(.018,length,.018);targets[i].position.copy(r.anchor);targets[i].visible=true;}
+  shooterWorld[i].copy(shooterOffset).applyQuaternion(hands[i].quaternion).add(hands[i].position);
+  const flight=flights[i];tips[i].visible=flight.active&&!paused;impacts[i].visible=impactTimers[i]>0&&!paused;
+  if(flight.active&&!paused){const vector=flight.tip.clone().sub(shooterWorld[i]),length=vector.length();mesh.visible=true;mesh.position.copy(shooterWorld[i]).addScaledVector(vector,.5);mesh.quaternion.setFromUnitVectors(worldUp,vector.normalize());mesh.scale.set(.03,length,.03);tips[i].position.copy(flight.tip);targets[i].visible=false;aimLines[i].visible=false;}
+  if(impactTimers[i]>0){const progress=1-impactTimers[i]/.18;impacts[i].scale.setScalar(1+progress*2);impacts[i].material.opacity=1-progress;}
+  hands[i].children[2].scale.setScalar(1+flashTimers[i]*30);
+  if(r){const from=shooterWorld[i].clone(),vector=r.anchor.clone().sub(from),length=vector.length();mesh.position.copy(from).addScaledVector(vector,.5);mesh.quaternion.setFromUnitVectors(worldUp,vector.normalize());mesh.scale.set(.018,length,.018);targets[i].position.copy(r.anchor);targets[i].visible=true;}
   if(session&&!tracked[i]){targets[i].visible=false;aimLines[i].visible=false;}
 }}
 renderer.setAnimationLoop((milliseconds,frame)=>{
   const time=milliseconds/1000,dt=lastTime?Math.min(.05,Math.max(0,time-lastTime)):1/72;lastTime=time;
   let ready=true;
   if(active){if(session&&frame){if(session.visibilityState!=='visible'){releaseAll();ready=false;}else ready=updateXR(frame,dt);}else if(desktop&&!paused)updateDesktop(dt);
-    if(!paused&&ready){accumulator+=dt;while(accumulator>=1/180){physics.step(1/180,moveWish,reels);accumulator-=1/180;}overlayTimer=Math.max(0,overlayTimer-dt);
+    if(!paused&&ready){advanceFlights(dt);accumulator+=dt;while(accumulator>=1/180){physics.step(1/180,moveWish,reels);accumulator-=1/180;}overlayTimer=Math.max(0,overlayTimer-dt);
       if(Math.abs(physics.p.x)>265||Math.abs(physics.p.z)>265||physics.p.y< -10||physics.p.y>400)reset();
     }else accumulator=0;
     if(session){yawQuat.setFromAxisAngle(worldUp,yaw);rig.quaternion.copy(yawQuat);const offset=V(headLocal.x,0,headLocal.z).applyQuaternion(yawQuat);rig.position.copy(physics.p).sub(offset);headWorld.copy(physics.p).add(V(0,roomY,0));}
     else{rig.position.copy(physics.p);headWorld.copy(physics.p).add(V(0,1.7,0));}
     for(let i=0;i<2;i++)if(hands[i].visible)hands[i].position.copy(physics.p).add(handOffset[i]);
-    drawWebs();updateHud(time,headWorld,headQuat);
+    drawWebs();updateHud(time,headWorld,headQuat);updateAudioPose(headWorld,headQuat);
     if(wind)wind.gain.setTargetAtTime(!paused&&ready?Math.min(.18,physics.v.length()/350):0,audio.currentTime,.15);
   }else{
     rig.rotation.set(0,0,0);rig.position.set(65+Math.sin(time*.035)*15,100,100);camera.position.set(0,0,0);camera.lookAt(-10,20,-40);vrHUD.visible=false;comfort.visible=false;
-    hands.forEach(h=>h.visible=false);webs.forEach(w=>w.visible=false);targets.forEach(t=>t.visible=false);aimLines.forEach(l=>l.visible=false);
+    tips.forEach(h=>h.visible=false);impacts.forEach(h=>h.visible=false);hands.forEach(h=>h.visible=false);webs.forEach(w=>w.visible=false);targets.forEach(t=>t.visible=false);aimLines.forEach(l=>l.visible=false);
   }
+  city.update?.(time,active?physics.p:rig.position,paused);
   renderer.render(scene,camera);
 });
+
+// Readable module exports also allow the integration harness to drive real input paths.
+export {updateXR,processHand,advanceFlights,drawWebs,updateHud,pause,reset,physics,flights,hands,webs,vrHUD,renderer,scene,city};

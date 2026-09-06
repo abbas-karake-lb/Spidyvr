@@ -1,4 +1,6 @@
 import * as T from './vendor/three.module.min.js';
+import {enrichCity} from './city-detail.js';
+import {createCityLife} from './city-life.js';
 export function createCity(scene){
   let seed=7301;const rand=()=>{seed=(seed*1664525+1013904223)>>>0;return seed/4294967296;};
   const boxGeo=new T.BoxGeometry(1,1,1),dummy=new T.Object3D(),boxes=[];
@@ -12,16 +14,25 @@ export function createCity(scene){
   const roof=solid(0x737d82),sidewalk=solid(0xbcc0bc),asphalt=solid(0x394650),grass=solid(0x66856a),trunk=solid(0x6e5542),leaf=solid(0x547a59);
   const floor=new T.Mesh(new T.PlaneGeometry(1600,1600),asphalt);floor.rotation.x=-Math.PI/2;floor.position.y=-.04;scene.add(floor);
   function facade(rows){
-    const canvas=document.createElement('canvas');canvas.width=128;canvas.height=rows*24;
-    const c=canvas.getContext('2d');c.fillStyle='#d4d7d4';c.fillRect(0,0,128,canvas.height);
+    const canvas=document.createElement('canvas');canvas.width=256;canvas.height=rows*32;
+    const c=canvas.getContext('2d'),style=[8,13,20,29].indexOf(rows);
+    const base=['#aa8d7b','#d4d1c3','#829da8','#708c9c'][style];c.fillStyle=base;c.fillRect(0,0,256,canvas.height);
     for(let y=0;y<rows;y++){
-      c.fillStyle='#a3aead';c.fillRect(0,y*24,128,2);
+      c.fillStyle=style===0?'#7b6e64':'#abb8b8';c.fillRect(0,y*32,256,2);
+      if(style===0){c.fillStyle='#bb9e8a';for(let brick=0;brick<8;brick++)c.fillRect(brick*32+(y%2)*16,y*32+19,30,1);}
       for(let x=0;x<4;x++){
-        c.fillStyle=rand()>.84?'#e7d9a9':rand()>.5?'#506975':'#67808a';c.fillRect(6+x*32,y*24+5,20,14);
-        c.fillStyle='#a7b8bb';c.fillRect(6+x*32,y*24+5,20,2);c.fillRect(15+x*32,y*24+5,1,14);
+        const windowColor=rand()>.84?'#e7d9a9':rand()>.5?'#506975':'#67808a';
+        const left=10+x*64,top=y*32+5,width=style>=2?49:40;
+        c.fillStyle='#45545b';c.fillRect(left-2,top-1,width+4,24);
+        c.fillStyle=windowColor;c.fillRect(left,top,width,20);
+        c.fillStyle=style>=2?'#8faebc':'#a7b8bb';c.fillRect(left,top,width,4);
+        c.fillStyle='#c0c6be';c.fillRect(left+width/2,top,2,20);c.fillRect(left,top+21,width+2,2);
+        if((x+y)%4===0){c.fillStyle='#b7bab2';c.fillRect(left+1,top+6,width/2-2,7);}
       }
+      if(style===1){c.fillStyle='#eee4cf';for(let x=0;x<4;x++)c.fillRect(x*64,y*32,5,32);}
     }
     const tex=new T.CanvasTexture(canvas);tex.colorSpace=T.SRGBColorSpace;tex.anisotropy=4;
+    tex.minFilter=T.LinearMipmapLinearFilter;tex.magFilter=T.LinearFilter;
     return new T.MeshLambertMaterial({map:tex});
   }
   const facades=[facade(8),facade(13),facade(20),facade(29)];
@@ -29,7 +40,8 @@ export function createCity(scene){
     const wall=facades[type],color=palette[Math.floor(rand()*palette.length)];
     addBatch('buildings'+type,boxGeo,[wall,wall,roof,roof,wall,wall],x,h/2,z,w,h,d,color);
     boxes.push(new T.Box3(new T.Vector3(x-w/2,0,z-d/2),new T.Vector3(x+w/2,h,z+d/2)));
-    addBatch('roof-rim',boxGeo,roof,x,h-.1,z,w+.6,.2,d+.6);
+    // The original full roof-rim slab was coplanar with the building top: removed.
+    // This building mesh now supplies the single roof deck; perimeter trim is added outside it.
     addBatch('roof-unit',boxGeo,solidUnit,x+2,h+1,z+1,3,2,4);
     if(h>75)addBatch('antenna',boxGeo,roof,x,h+4,z,.2,8,.2);
   }
@@ -37,7 +49,7 @@ export function createCity(scene){
   const roadMark=solid(0xdac990),white=solid(0xe1e3d8);
   for(let ix=-5;ix<=5;ix++)for(let iz=-5;iz<=5;iz++){
     const x=ix*44,z=iz*44;
-    addBatch('pavement',boxGeo,sidewalk,x,.08,z,32,.16,32);
+    addBatch('pavement',boxGeo,sidewalk,x,.08,z,34,.16,34);
     const park=(ix===2&&iz===1)||(ix===-2&&iz===-1)||rand()<.07;
     if(park&&(ix||iz)){
       addBatch('parks',boxGeo,grass,x,.19,z,28,.15,28);
@@ -66,13 +78,15 @@ export function createCity(scene){
     addBatch('car-windows',boxGeo,glass,x,1.4,z,1.65,.6,2.2,0xffffff,rotation);
     for(const s of [-1,1])for(const t of [-1,1])addBatch('wheels',boxGeo,wheels,x+(vertical?s:1.3*t),.4,z+(vertical?1.3*t:s),.4,.55,.5);
   }
-  for(const {geo,mat,items} of batches.values()){
+  const detail=enrichCity(scene,boxes,addBatch,boxGeo);detail.animateLeaves(leaf);
+  for(const [name,{geo,mat,items}] of batches){
     const mesh=new T.InstancedMesh(geo,mat,items.length);
     items.forEach((o,i)=>{dummy.position.set(o.x,o.y,o.z);dummy.scale.set(o.w,o.h,o.d);dummy.rotation.set(0,o.rotation,0);dummy.updateMatrix();mesh.setMatrixAt(i,dummy.matrix);mesh.setColorAt(i,new T.Color(o.color));});
-    mesh.computeBoundingSphere();scene.add(mesh);
+    mesh.name=name;mesh.computeBoundingSphere();scene.add(mesh);
   }
   // Clearly visible rooftop starting pad.
   const pad=new T.Mesh(new T.RingGeometry(2.8,3,64),new T.MeshBasicMaterial({color:0x69eadc,side:T.DoubleSide}));
   pad.rotation.x=-Math.PI/2;pad.position.set(0,32.02,0);scene.add(pad);
-  return {boxes,buildingCount:boxes.length};
+  const life=createCityLife(scene,boxes);
+  return {boxes,buildingCount:boxes.length,life,update(time,position,paused=false){detail.timeUniform.value=time;life.update(time,position,paused);}};
 }

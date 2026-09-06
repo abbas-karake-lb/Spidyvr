@@ -10,21 +10,23 @@ Open that address in **Meta Quest Browser**, select **Enter VR**, and allow the 
 
 | Control | Action |
 |---|---|
-| Left / right index trigger | Aim at a building, hold to attach that web, release to fly |
+| Left / right index trigger | Aim at a building, hold to shoot and attach that web, release to fly |
 | Pull attached hand backward | Launch your body forward, opposite the hand stroke |
 | Pull attached hand downward | Add upward launch momentum |
 | Pull both attached hands | Combine both strokes for more launch power |
 | Side grip with web attached | Reel in toward the anchor |
 | Hold A, then release | Charge a super jump from a roof or the street |
 | Left thumbstick | Walk and steer in the air |
-| Right thumbstick | 30-degree snap turn |
+| Right thumbstick | Smooth analog turn (18% dead zone, up to 120°/s) |
 | B | Return to the starting roof |
 | X | Cycle gentle / normal / strong pull power |
 | Y | Pause and show controls; press again to resume |
 
+Webs visibly travel for 75–220 milliseconds before the existing swing constraint becomes active. The firing sound is spatialized at the corresponding hand. The VR controls panel appears only while paused (Y).
+
 Start on the marked roof. Aim above and ahead, attach a web, step or jump off, pull back, then release on the rising portion of the swing. Catch the next building with the other hand. Pulling down and back with both hands adds height and speed. Motion is intense; begin with gentle strokes.
 
-Movement settings are on the start screen and saved only in your browser. The default full jump gains about 34 meters of height. There are 105 buildings with varied roof heights, street markings, parked cars, and parks. The outer city boundary returns you to the starting roof.
+Movement settings are on the start screen and saved only in your browser. The default full jump gains about 34 meters of height. The same 105 buildings and their collision bounds remain in place, with richer facades, rooftop equipment, water tanks, signs, ledges, lighting fixtures, and street furniture. The city now includes 56 moving traffic vehicles, 96 pedestrian routes, 18 birds, and an occasional distant aircraft; distance culling limits what is actually drawn. The outer city boundary returns you to the starting roof.
 
 ## Desktop
 
@@ -47,10 +49,17 @@ npm run check
 
 - `docs/game.js`: renderer, XR frame/pose handling, controller input, audio, HUD, session lifecycle.
 - `docs/physics.js`: fixed-step movement, pull impulses, rope constraints, collision, jumping.
-- `docs/city.js`: seeded city generation with instanced geometry.
+- `docs/city.js`: original seeded layout and enhanced facade materials.
+- `docs/city-detail.js`: shared rooftop and street detail batches.
+- `docs/city-life.js`: pooled traffic, pedestrian LOD/gait, birds, aircraft, and sky.
+- `docs/traversal.js`: continuous turn input and the web-flight state machine.
 - `docs/vendor/`: vendored Three.js r180 and its MIT license.
 - `tests/`: physics regression checks and city geometry budget checks.
 
 GitHub Pages should publish from **main → /docs**. `.nojekyll` keeps the files as plain static assets. All browser imports are relative so the `/Spidyvr/` project URL works.
 
 Original project code uses the repository's Apache-2.0 license. Three.js is distributed under its own included MIT license. No BattleGlide or Marvel assets are included.
+
+## September 6 update
+
+See [UPDATE-2026-09-06.md](UPDATE-2026-09-06.md) for changes, test coverage, performance budgets, and the remaining physical headset checks.

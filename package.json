@@ -1,1 +1,12 @@
-{"name":"spidyvr","version":"1.0.0","private":true,"type":"module","license":"Apache-2.0","scripts":{"test":"node --test tests/*.test.js","check":"node --check docs/game.js && node --check docs/physics.js && node --check docs/city.js"}}
+{
+  "name": "spidyvr",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "scripts": {
+    "test": "node --experimental-vm-modules --test tests/*.test.js",
+    "check": "node --check docs/game.js && node --check docs/physics.js && node --check docs/city.js && node --check docs/city-detail.js && node --check docs/city-life.js && node --check docs/traversal.js",
+    "dev": "node scripts/preview-server.mjs"
+  }
+}
