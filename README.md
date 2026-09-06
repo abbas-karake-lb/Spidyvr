@@ -87,3 +87,9 @@ This update is isolated in its own reversible commit. The preceding rigid-rope v
 ## Living city overhaul
 
 See [CITY-OVERHAUL.md](CITY-OVERHAUL.md) for the new interactions, rendering budgets, checks, and remaining headset validation. Building collision bounds and the elastic player traversal implementation are preserved. The preceding version is `5de294d3ada94e6cd8f482aa73aa4f4dcd66ccf9`; this overhaul is published as a separate reversible commit.
+
+## Small-motion pull fix
+
+Small hand adjustments after a building web attaches no longer reset flight momentum. A new pull must cover 3 cm of coherent movement, at least 0.55 m/s, within a 120 ms window before directional momentum correction is enabled. The initial samples are retained so confirmed pulls keep their full boost, including pull-down/release launches. Tracking jitter, slow repositioning, expired partial strokes, and release/re-fire cannot carry an unfinished gesture into a new launch. Existing elastic rope tension and other gameplay systems are unchanged.
+
+The focused physics and simulated Quest controller suite passes 35 checks, including both hands, 72/90/120 Hz input, passing an anchor before the elastic catch, and deliberate pull/release boosts. Headset feel still needs physical testing. The preceding city-overhaul commit is `d40382ba3b27280ece771b5c34c9873442ad93e2`.
