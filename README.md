@@ -64,8 +64,12 @@ Original project code uses the repository's Apache-2.0 license. Three.js is dist
 
 See [UPDATE-2026-09-06.md](UPDATE-2026-09-06.md) for changes, test coverage, performance budgets, and the remaining physical headset checks.
 
-## Directional pull update
+## High-speed pull and strong-rope update
 
-Pull down and back to boost up and forward, even when attached to a building below you. Pull up and back to boost down and forward. Vertical stroke direction is independent of anchor height; mostly horizontal arm extension remains a recovery movement. While a hand boost carries you away from an anchor, the rope lets out instead of immediately cancelling the boost. Ordinary rope tension resumes when that outward motion ends. Side-grip reeling explicitly overrides this and still draws you toward the anchor.
+A new hand pull removes momentum opposing or crossing the launch direction, preserving speed already aligned with it. Pull impulses still follow the opposite hand movement, independent of anchor height. Continuous strokes and simultaneous hands retain their existing strength; mostly horizontal arm extension remains a recovery movement.
 
-This change is isolated in its own commit. The preceding city/turning version is `7fb3f57b9ba8f9ccf9a79b0d5e7a4254170a0bbb`; reverting the directional-pull commit restores that behavior without undoing the city upgrade.
+Held webs keep their attachment length. Hand pulls no longer shorten or automatically extend them; side-grip reeling can still explicitly shorten them. A taut web cancels velocity away from its anchor and constrains movement to its swing arc. This means a directly outward launch cannot continue through a taut, fixed-length rope: release to fly freely, or pull along the available swing arc.
+
+Speed, a web crossing a building, and crossing the city boundary while tethered no longer detach webs. Shots keep their initially valid target during travel. Trigger release, pause, reset, and XR tracking/session safety releases still work. Webs remain straight lines rather than wrapping around corners; player/building collision stays enabled.
+
+This fix is isolated in its own commit. The preceding directional-pull version is `cfb9c4ba0f36e83d12158058a754f6bead170dd4`, so the fix can be reverted without undoing earlier city improvements. Automated physics and simulated Quest input tests cover the changes; physical Quest 3 comfort and feel still need headset testing.

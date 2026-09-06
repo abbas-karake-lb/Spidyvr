@@ -21,21 +21,52 @@ test('dual anchor simulation remains finite and bounded over extended swinging',
 test('identical downward/backward strokes add identical upward/forward boosts above or below the anchor',()=>{
   const velocities=[];for(const anchorY of [20,140]){const p=new Movement();p.p.set(0,80,0);p.attach(0,V(0,anchorY,-35),V(-.25,1.35,-.4));p.pull(0,V(0,-.07,.04),1/72);assert.ok(p.v.y>0&&p.v.z<0);velocities.push(p.v.toArray());}assert.deepEqual(velocities[0],velocities[1]);
 });
-test('falling above buildings: downward pulls recover upward flight instead of being cancelled by a lower taut web',()=>{
-  const p=new Movement();p.p.set(0,80,0);p.v.y=-8;p.attach(0,V(0,25,-15),V(-.25,1.35,-.4));
-  for(let frame=0;frame<10;frame++){p.pull(0,V(0,-.06,.035),1/72);for(let n=0;n<3;n++)p.step(1/180);}
-  const height=p.p.y;assert.ok(p.v.y>6,`upward velocity ${p.v.y}`);assert.ok(p.v.z<0);assert.ok(p.ropes[0].pullPayout);
-  advance(p,.2);assert.ok(p.p.y>height+1,'rope must not cancel the launch on following frames');
+test('new pulls overcome fast opposing and sideways momentum with the same stroke strength as rest',()=>{
+  for(const delta of [V(0,-.06,.035),V(0,.06,.035),V(0,0,.08)]){
+    const velocities=[];
+    for(const speed of [V(),V(80,0,0),delta.clone().setLength(80)]){
+      const p=new Movement();p.p.set(0,80,0);p.v.copy(speed);p.attach(0,V(0,25,-15),V(-.25,1.35,-.4));
+      p.pull(0,delta,1/72);velocities.push(p.v.clone());
+    }
+    for(const v of velocities)assert.ok(v.distanceTo(velocities[0])<1e-9);
+  }
 });
-test('upward/backward hand stroke launches downward/forward even when the anchor is above',()=>{
-  const p=new Movement();p.p.set(0,80,0);p.attach(0,V(0,140,-15),V(.25,1.35,-.4));p.pull(0,V(0,.08,.04),1/72);assert.ok(p.v.y<0&&p.v.z<0);const before=p.p.y;advance(p,.15);assert.ok(p.p.y<before-.2);assert.ok(p.ropes[0].pullPayout);
+test('aligned flight speed is preserved when starting another pull',()=>{
+  const p=new Movement();p.attach(0,V(0,60,-80));p.v.z=-40;p.pull(0,V(0,0,.05),1/72);assert.ok(p.v.z< -40);
 });
-test('dual lower webs cannot cancel an upward directional pull from either hand',()=>{
-  const p=new Movement();p.p.set(0,80,0);p.attach(0,V(-8,20,-10),V(-.25,1.35,-.4));p.attach(1,V(8,20,-10),V(.25,1.35,-.4));p.pull(0,V(0,-.1,.035),1/72);assert.ok(p.ropes.every(r=>r.pullPayout));advance(p,.1);assert.ok(p.v.y>1&&p.p.y>80);
+test('continuous pulls accumulate across frames, then a reversed gesture redirects immediately',()=>{
+  const p=new Movement([],{gravity:0});p.p.set(0,100,0);p.attach(0,V(0,100,-100),V());
+  let previous=0;for(let i=0;i<8;i++){p.pull(0,V(0,-.04,.03),1/72);assert.ok(p.v.length()>previous);previous=p.v.length();p.step(1/72);}
+  p.pull(0,V(0,.05,-.04),1/72);assert.ok(p.v.y<0&&p.v.z>0);
 });
-test('outward boost payout stops at the natural apex and ordinary rope tension resumes',()=>{
-  const p=new Movement();p.p.set(0,80,0);p.attach(0,V(0,20,0),V());p.pull(0,V(0,-.1,0),1/72);advance(p,.1);assert.ok(p.ropes[0].pullPayout);const initial=p.ropes[0].length;advance(p,.6);assert.equal(p.ropes[0].pullPayout,false);const length=p.ropes[0].length;assert.ok(length>=initial);advance(p,.2);near(p.ropes[0].length,length);assert.ok(p.p.distanceTo(p.ropes[0].anchor)<=length+.01);
+test('returning to a held web after resting the hand starts a fresh direction',()=>{
+  const p=new Movement([],{gravity:0});p.attach(0,V(0,100,0));p.pull(0,V(0,-.05,.05),1/72);advance(p,.15);p.v.set(80,0,0);
+  p.pull(0,V(0,-.05,.05),1/72);near(p.v.x,0);assert.ok(p.v.y>0&&p.v.z<0);
 });
-test('side-grip reeling overrides outward boost payout and still reels toward the anchor',()=>{
-  const p=new Movement();p.p.set(0,80,0);p.attach(0,V(0,20,0),V());p.pull(0,V(0,-.1,0),1/72);advance(p,.1);const length=p.ropes[0].length;p.step(1/180,V(),[true,false]);assert.equal(p.ropes[0].pullPayout,false);assert.ok(p.ropes[0].length<length);assert.ok(p.v.y<=0);
+test('downward/backward pulls launch upward/forward within available rope slack',()=>{
+  const p=new Movement();p.p.set(0,100,0);p.attach(0,V(0,25,-15),V());const length=p.ropes[0].length;p.p.y=80;p.v.y=-8;
+  for(let frame=0;frame<10;frame++){p.pull(0,V(0,-.06,.035),1/72);p.step(1/72);}
+  assert.ok(p.v.y>6&&p.v.z<0);near(p.ropes[0].length,length);
+});
+test('upward/backward strokes launch downward/forward within rope slack',()=>{
+  const p=new Movement();p.p.set(0,60,0);p.attach(0,V(0,140,-15),V());p.p.y=80;p.pull(0,V(0,.08,.04),1/72);
+  assert.ok(p.v.y<0&&p.v.z<0);advance(p,.15);assert.ok(p.p.y<79.8);
+});
+test('taut ropes brake 80 m/s outward flight without stretching or breaking',()=>{
+  for(const axis of [V(1,0,0),V(0,1,0),V(0,0,1)]){
+    const p=new Movement([],{gravity:0}),anchor=V(0,100,0);p.p.copy(anchor).addScaledVector(axis,20);p.attach(0,anchor,V());p.v.copy(axis).multiplyScalar(80);
+    advance(p,.5);assert.ok(p.ropes[0]);near(p.ropes[0].length,20);assert.ok(p.p.distanceTo(anchor)<=20.001);assert.ok(p.v.length()<.001);
+  }
+});
+test('hand pulls never extend or shorten a fixed rope, including outward strokes and dual webs',()=>{
+  const p=new Movement();p.p.set(0,80,0);p.attach(0,V(-8,20,-10),V());p.attach(1,V(8,20,-10),V());const lengths=p.ropes.map(r=>r.length);
+  for(let frame=0;frame<100;frame++){
+    for(let hand=0;hand<2;hand++)p.pull(hand,V(0,frame<50?-.04:.04,.025),1/72);
+    p.step(1/72);
+    p.ropes.forEach((r,i)=>{assert.ok(r);near(r.length,lengths[i]);assert.ok(p.p.distanceTo(r.anchor)<=r.length+.02);});
+  }
+});
+test('side-grip is the only input that shortens a held rope',()=>{
+  const p=new Movement();p.p.set(0,80,0);p.attach(0,V(0,20,0),V());const length=p.ropes[0].length;p.pull(0,V(0,-.1,0),1/72);advance(p,.1);near(p.ropes[0].length,length);
+  p.step(1/180,V(),[true,false]);assert.ok(p.ropes[0].length<length);assert.ok(p.v.y<=0);
 });

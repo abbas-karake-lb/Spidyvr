@@ -38,10 +38,41 @@ test('real Quest input path turns continuously on a roof, while walking, and whi
   const start=api.physics.p.clone();sources[0].gamepad.axes[3]=-.8;for(let n=0;n<45;n++)h.tick(1/90);assert.ok(api.physics.p.distanceTo(start)>1);
   sources[0].gamepad.axes[3]=0;api.physics.p.set(22,120,22);api.physics.v.set(12,0,-25);const heading=Math.atan2(api.physics.v.x,api.physics.v.z);for(let n=0;n<30;n++)h.tick(1/90);assert.ok(Math.abs(Math.atan2(api.physics.v.x,api.physics.v.z)-heading)<.0001);assert.equal(api.vrHUD.visible,false);
 });
-test('Quest controller flow: attach below while falling, pull down/back, and sustain an upward launch',async()=>{
-  const h=await questHarness(),{api,sources,poses}=h;api.physics.p.set(0,80,0);api.physics.v.y=-3;h.aim(0,V(0,32,0));sources[0].gamepad.buttons[0].pressed=true;
-  for(let i=0;i<18;i++)h.tick();assert.ok(api.physics.ropes[0]);assert.ok(api.physics.ropes[0].anchor.y<api.physics.p.y);
-  for(let i=0;i<9;i++){poses[0].p.y-=.06;poses[0].p.z+=.03;h.tick();}
-  assert.ok(api.physics.v.y>5,`expected upward controller-driven boost, got ${api.physics.v.y}`);assert.ok(api.physics.v.z<0);
-  const height=api.physics.p.y;for(let i=0;i<10;i++)h.tick();assert.ok(api.physics.p.y>height+.5);assert.ok(api.physics.ropes[0]);assert.equal(api.vrHUD.visible,false);
+test('Quest controller flow: fast travel, new web, opposite-hand pull, fixed length, release and refire',async()=>{
+  for(const hand of [0,1]){
+    const h=await questHarness(),{api,sources,poses}=h;api.physics.p.set(0,120,0);h.tick();h.aim(hand,V(0,32,0));sources[hand].gamepad.buttons[0].pressed=true;h.tick();
+    assert.ok(api.flights[hand].active);for(let i=0;i<18;i++)h.tick();assert.ok(api.physics.ropes[hand]);
+    const rope=api.physics.ropes[hand],length=rope.length;
+    // Within this fixed rope, slack allows the requested up/forward stroke.
+    api.physics.p.y-=15;api.physics.v.set(0,0,80);
+    poses[hand].p.y-=.06;poses[hand].p.z+=.04;h.tick();
+    assert.ok(api.physics.v.z<0,'new pull must reverse old forward momentum immediately');assert.ok(api.physics.v.y>0);assert.equal(rope.length,length);
+    for(let i=0;i<8;i++){poses[hand].p.y-=.04;poses[hand].p.z+=.025;h.tick();}assert.ok(api.physics.v.z< -5);
+    sources[hand].gamepad.buttons[0].pressed=false;h.tick();assert.equal(api.physics.ropes[hand],null);
+    h.aim(hand,V(0,32,0));sources[hand].gamepad.buttons[0].pressed=true;h.tick();assert.ok(api.flights[hand].active);
+    for(let i=0;i<18;i++)h.tick();assert.ok(api.physics.ropes[hand]);assert.equal(api.vrHUD.visible,false);
+  }
+});
+test('held web survives crossing building geometry and city limits, brakes flight, and still releases on trigger',async()=>{
+  const h=await questHarness(),{api,sources}=h;h.tick();sources[0].gamepad.buttons[0].pressed=true;h.tick();
+  api.flights[0].cancel();api.physics.p.set(266,120,0);api.physics.attach(0,V(220,120,0),V(-.25,1.35,-.4));const rope=api.physics.ropes[0],length=rope.length;api.physics.v.set(80,0,0);
+  for(let i=0;i<12;i++)h.tick();assert.equal(api.physics.ropes[0],rope);assert.equal(rope.length,length);assert.ok(api.physics.v.x<1);assert.ok(api.physics.p.x>250,'tethered player must not reset at city edge');
+  // A line through the starting building used to be automatically cut by drawWebs.
+  api.physics.p.set(20,10,0);api.physics.attach(0,V(-20,10,0));const obstructed=api.physics.ropes[0];api.drawWebs();assert.equal(api.physics.ropes[0],obstructed);assert.ok(api.webs[0].visible);
+  sources[0].gamepad.buttons[0].pressed=false;h.tick();assert.equal(api.physics.ropes[0],null);
+});
+test('a valid shot attaches even if fast movement puts a corner between the hand and target during travel',async()=>{
+  const h=await questHarness(),{api,sources}=h;api.physics.p.set(0,80,0);h.tick();h.aim(0,V(0,32,0));sources[0].gamepad.buttons[0].pressed=true;h.tick();assert.ok(api.flights[0].active);
+  const target=api.flights[0].target.clone();api.physics.p.set(20,10,0);api.advanceFlights(.3);
+  assert.ok(api.physics.ropes[0]);assert.ok(api.physics.ropes[0].anchor.equals(target));api.drawWebs();assert.ok(api.physics.ropes[0]);
+});
+
+test('turning around during fast flight then pulling redirects world momentum through Quest poses',async()=>{
+  const h=await questHarness(),{api,sources,poses}=h;api.physics.p.set(0,200,0);h.tick();
+  sources[1].gamepad.axes[2]=1;for(let n=0;n<108;n++)h.tick();sources[1].gamepad.axes[2]=0;
+  api.physics.p.set(0,120,0);api.physics.v.set(0,0,-80);h.aim(1,V(0,32,0));sources[1].gamepad.buttons[0].pressed=true;h.tick();assert.ok(api.flights[1].active);
+  for(let n=0;n<18;n++)h.tick();const rope=api.physics.ropes[1];assert.ok(rope);const length=rope.length;
+  poses[1].p.y-=.07;poses[1].p.z+=.05;h.tick();
+  assert.ok(api.physics.v.z>0,'a backward hand stroke after a half-turn must reverse the original flight');
+  assert.equal(api.physics.ropes[1],rope);assert.equal(rope.length,length);assert.ok(api.physics.p.clone().add(rope.hand).distanceTo(rope.anchor)<=length+.02);
 });

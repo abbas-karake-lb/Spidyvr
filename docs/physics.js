@@ -4,17 +4,18 @@ export const defaults={gravity:15,pull:22,jump:32,maxSpeed:80,reel:11};
 export class Movement {
   constructor(boxes=[],settings={}) {
     this.boxes=boxes; this.settings={...defaults,...settings}; this.p=V(0,32,0); this.v=V();
+    this.time=0;this.lastPullAt=-Infinity;this.pullHeading=V();
     this.ropes=[null,null]; this.grounded=false; this.height=1.7; this.radius=.32;
   }
-  reset(p=V(0,32,0)){this.p.copy(p);this.v.set(0,0,0);this.ropes=[null,null];this.grounded=false;}
+  reset(p=V(0,32,0)){this.p.copy(p);this.v.set(0,0,0);this.ropes=[null,null];this.grounded=false;this.lastPullAt=-Infinity;}
   attach(i,anchor,hand=V(0,1.3,0)) {
-    this.ropes[i]={anchor:anchor.clone(),hand:hand.clone(),length:Math.max(1.2,this.p.clone().add(hand).distanceTo(anchor)),pullPayout:false};
+    if(!this.ropes.some(Boolean))this.lastPullAt=-Infinity;
+    this.ropes[i]={anchor:anchor.clone(),hand:hand.clone(),length:Math.max(1.2,this.p.clone().add(hand).distanceTo(anchor)),freshPull:true};
   }
   release(i){this.ropes[i]=null;}
   pull(i,delta,dt) {
     const r=this.ropes[i]; if(!r||dt<=0||delta.length()>.3)return 0;
-    const toward=r.anchor.clone().sub(this.p).sub(r.hand).normalize();
-    const stroke=delta.clone().negate(); const inward=stroke.dot(toward);
+    const stroke=delta.clone().negate();
     // Vertical strokes work in either direction, regardless of anchor height.
     // A mostly horizontal reach away from the body remains a recovery movement.
     const distance=delta.length(),horizontalHand=r.hand.clone().setY(0);
@@ -23,15 +24,16 @@ export class Movement {
     if(distance<=.0006||distance/dt<.12||(!towardBody&&Math.abs(delta.y)<distance*.4))return 0;
     const speed=delta.length()/dt;
     const gain=this.settings.pull*Math.min(1.65,.65+speed*.22);
-    this.v.addScaledVector(stroke,gain);
-    r.length=Math.max(1.2,r.length-Math.max(0,inward)*5);
-    // A directional launch must survive every attached rope, including dual webs.
-    // Let out a taut rope while the launch carries the body away from its anchor.
-    // Gravity/collisions end the outward leg naturally; grip reeling overrides it.
-    for(const rope of this.ropes)if(rope){
-      const outward=this.p.clone().add(rope.hand).sub(rope.anchor).normalize();
-      if(stroke.dot(outward)>.0006&&this.v.dot(outward)>0)rope.pullPayout=true;
+    const heading=stroke.clone().multiplyScalar(1/distance);
+    // At a new gesture, discard momentum fighting the chosen launch direction.
+    // Keep aligned speed; subsequent samples and simultaneous hands add normally.
+    const sameFrame=this.lastPullAt===this.time;
+    if(!sameFrame&&(r.freshPull||this.time-this.lastPullAt>.1||heading.dot(this.pullHeading)<.15)){
+      const aligned=Math.max(0,this.v.dot(heading));
+      this.v.copy(heading).multiplyScalar(aligned);
     }
+    r.freshPull=false;this.lastPullAt=this.time;this.pullHeading.copy(heading);
+    this.v.addScaledVector(stroke,gain);
     this.capSpeed(); return distance*gain;
   }
   jump(charge=1){if(!this.grounded)return false;this.v.y=this.settings.jump*(.5+.5*Math.max(0,Math.min(1,charge)));this.grounded=false;return true;}
@@ -55,22 +57,17 @@ export class Movement {
     }
   }
   step(dt,wish=V(),reels=[false,false]) {
+    this.time+=dt;
     const onGround=this.grounded;this.grounded=false;
     if(onGround){const blend=1-Math.exp(-10*dt);this.v.x+=(wish.x*7-this.v.x)*blend;this.v.z+=(wish.z*7-this.v.z)*blend;}
     else if(wish.lengthSq()>.01)this.v.addScaledVector(wish,7*dt);
     this.v.y-=this.settings.gravity*dt;
     this.v.multiplyScalar(Math.exp(-.018*dt));
     this.ropes.forEach((r,i)=>{if(r&&reels[i]){
-      r.pullPayout=false;
       r.length=Math.max(1.2,r.length-this.settings.reel*dt);
       this.v.addScaledVector(r.anchor.clone().sub(this.p).sub(r.hand).normalize(),18*dt);
     }});
     this.capSpeed();this.move(this.v.clone().multiplyScalar(dt));
-    for(const r of this.ropes)if(r&&r.pullPayout){
-      const radial=this.p.clone().add(r.hand).sub(r.anchor);
-      if(this.v.dot(radial)>0)r.length=Math.max(r.length,radial.length()+.001);
-      else r.pullPayout=false;
-    }
     for(let iteration=0;iteration<5;iteration++)for(const r of this.ropes)if(r){
       const radial=this.p.clone().add(r.hand).sub(r.anchor),distance=radial.length();
       if(distance<r.length||distance<.001)continue;

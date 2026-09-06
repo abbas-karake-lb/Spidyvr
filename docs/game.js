@@ -1,5 +1,5 @@
 import * as T from './vendor/three.module.min.js';
-import {Movement,V,defaults} from './physics.js?pull=2';
+import {Movement,V,defaults} from './physics.js?pull=3';
 import {createCity} from './city.js';
 import {turnDelta,WebFlight,showVRPanel} from './traversal.js';
 const $=id=>document.getElementById(id);
@@ -68,8 +68,8 @@ function cancelWeb(i){physics.release(i);flights[i].cancel();impactTimers[i]=0;f
 function advanceFlights(dt){for(let i=0;i<2;i++){
   flashTimers[i]=Math.max(0,flashTimers[i]-dt);impactTimers[i]=Math.max(0,impactTimers[i]-dt);
   if(flights[i].advance(dt)&&triggerHeld[i]&&!paused){
-    const from=physics.p.clone().add(handOffset[i]),to=flights[i].target,toward=to.clone().sub(from),block=cast(from,toward.clone().normalize(),toward.length());
-    if(block&&block.distanceTo(to)>.8)continue;
+    // Keep the valid target selected at firing, even when the player moves past a corner.
+    const to=flights[i].target;
     physics.attach(i,to,handOffset[i]);pulse(i,.45,40);
     const normal=surfaceNormal(to);impacts[i].position.copy(to).addScaledVector(normal,.06);impacts[i].quaternion.setFromUnitVectors(V(0,0,1),normal);impactTimers[i]=.18;
   }
@@ -181,8 +181,8 @@ function updateDesktop(dt){
   updateJump(keys.has('Space'),dt);headQuat.copy(q);
 }
 function drawWebs(){for(let i=0;i<2;i++){
-  let r=physics.ropes[i];const mesh=webs[i];
-  if(r){const start=physics.p.clone().add(r.hand),toward=r.anchor.clone().sub(start),length=toward.length();const block=cast(start,toward.normalize(),length);if(block&&block.distanceTo(r.anchor)>.8){physics.release(i);pulse(i,.2,25);r=null;}}
+  // Rendering never releases a held rope, including when its line crosses geometry.
+  const r=physics.ropes[i],mesh=webs[i];
   mesh.visible=!!r;
   shooterWorld[i].copy(shooterOffset).applyQuaternion(hands[i].quaternion).add(hands[i].position);
   const flight=flights[i];tips[i].visible=flight.active&&!paused;impacts[i].visible=impactTimers[i]>0&&!paused;
@@ -197,7 +197,8 @@ renderer.setAnimationLoop((milliseconds,frame)=>{
   let ready=true;
   if(active){if(session&&frame){if(session.visibilityState!=='visible'){releaseAll();ready=false;}else ready=updateXR(frame,dt);}else if(desktop&&!paused)updateDesktop(dt);
     if(!paused&&ready){advanceFlights(dt);accumulator+=dt;while(accumulator>=1/180){physics.step(1/180,moveWish,reels);accumulator-=1/180;}overlayTimer=Math.max(0,overlayTimer-dt);
-      if(Math.abs(physics.p.x)>265||Math.abs(physics.p.z)>265||physics.p.y< -10||physics.p.y>400)reset();
+      const tethered=physics.ropes.some(Boolean)||flights.some(f=>f.active);
+      if(!tethered&&(Math.abs(physics.p.x)>265||Math.abs(physics.p.z)>265||physics.p.y< -10||physics.p.y>400))reset();
     }else accumulator=0;
     if(session){yawQuat.setFromAxisAngle(worldUp,yaw);rig.quaternion.copy(yawQuat);const offset=V(headLocal.x,0,headLocal.z).applyQuaternion(yawQuat);rig.position.copy(physics.p).sub(offset);headWorld.copy(physics.p).add(V(0,roomY,0));}
     else{rig.position.copy(physics.p);headWorld.copy(physics.p).add(V(0,1.7,0));}
