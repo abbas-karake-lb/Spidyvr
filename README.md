@@ -76,7 +76,7 @@ Attaching a web preserves incoming velocity. The web stretches beyond its unstre
 
 A deliberate hand pull still removes conflicting momentum and launches opposite the hand movement, independent of anchor height. Passive tension yields during the gesture, then smoothly returns over 0.22 seconds after an 0.08-second grace period. This keeps a loaded web from immediately cancelling a new pull. Releasing a web preserves current velocity.
 
-Speed, webs crossing buildings, and crossing the city boundary while tethered do not detach webs. Trigger release, pause, reset, and XR tracking/session safety releases remain intact. Webs are straight lines rather than wrapping around corners; body collision remains enabled. Catching is gradual, so leave braking distance before obstacles.
+Speed, webs crossing buildings, and crossing the city boundary while tethered do not detach webs. Trigger release, pause, reset, and XR tracking/session safety releases remain intact. Webs use a cosmetic curved strand and do not wrap around corners; body collision remains enabled. Catching is gradual, so leave braking distance before obstacles.
 
 The solver uses the existing 180 Hz physics loop, shared temporary vectors, and one spring evaluation per held web instead of five rigid constraint iterations. It adds no meshes, textures, or draw calls. Web visuals already follow the changing hand-to-anchor distance.
 
@@ -95,3 +95,5 @@ Small hand adjustments after a building web attaches no longer reset flight mome
 The focused physics and simulated Quest controller suite passes 35 checks, including both hands, 72/90/120 Hz input, passing an anchor before the elastic catch, and deliberate pull/release boosts. Headset feel still needs physical testing. The preceding city-overhaul commit is `d40382ba3b27280ece771b5c34c9873442ad93e2`.
 
 The latest **Coastal City** graphics pass adds generated facade and sky assets, PBR materials and reflections, live sun shadows, curved vehicle models, richer people and foliage, and a more aggressive Quest rendering preset. See [GRAPHICS-QUALITY.md](GRAPHICS-QUALITY.md) for changes, budgets and testing limits. Traversal and NPC physics are preserved.
+
+Animated anatomical gloves, flexible-looking braided webs and floating pistol pickups are now available. Hold **side grip** near a pistol to carry it, press **trigger** to fire, and release grip to drop/throw. The next trigger press returns to webs. One gun and one web—or two guns—work independently. See [HANDS-WEBS-WEAPONS.md](HANDS-WEBS-WEAPONS.md) for controls, hand-asset sources, implementation and verification.

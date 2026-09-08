@@ -1,7 +1,7 @@
 import * as T from './vendor/three.module.min.js';
 import {mergeParts,vehicleModel,personModel,dogModel,bodyPoints} from './city-models.js?visual=3';
 import {vehicleMaterial,visualQuality} from './city-quality.js?visual=3';
-import {NPCPhysics} from './npc-physics.js';
+import {NPCPhysics} from './npc-physics.js?combat=1';
 const V=(x=0,y=0,z=0)=>new T.Vector3(x,y,z),UP=V(0,1,0);
 export function createCityLife(scene,boxes,parked=[]){
   let seed=8804;const rand=()=>{seed=(seed*1664525+1013904223)>>>0;return seed/4294967296;};
@@ -44,7 +44,7 @@ export function createCityLife(scene,boxes,parked=[]){
   function uploadPose(person,t,viewer){
     const scale=person.scale,yaw=person.yaw;qYaw.setFromAxisAngle(UP,yaw);
     for(let j=0;j<15;j++){
-      if(person.ragdoll)pose[j].copy(person.ragdoll.nodes[j].p).sub(person.p).divideScalar(scale);
+      if(person.ragdoll||person.corpsePose)pose[j].copy(person.ragdoll?person.ragdoll.nodes[j].p:person.corpsePose[j]).sub(person.p).divideScalar(scale);
       else{
         pose[j].fromArray(bodyPoints[j]);const phase=t*person.speed*6+person.id,gait=person.wait?0:1;
         if([4,5,7,8].includes(j))pose[j].z+=Math.sin(phase+(j<6?0:Math.PI))*gait*(j===5||j===8?.19:.1);
@@ -55,7 +55,7 @@ export function createCityLife(scene,boxes,parked=[]){
     for(let j=0;j<15;j++){
       a.fromArray(bodyPoints[j]).sub(b.fromArray(bodyPoints[parent[j]])).normalize().applyQuaternion(qYaw);
       b.copy(pose[j]).sub(pose[parent[j]]).normalize();q.setFromUnitVectors(a,b).multiply(qYaw);
-      if(j===2&&!person.ragdoll&&person.p.distanceToSquared(viewer)<9**2){const look=Math.atan2(person.p.x-viewer.x,person.p.z-viewer.z);const diff=(look-yaw+Math.PI*3)%(Math.PI*2)-Math.PI;q.setFromAxisAngle(UP,yaw+Math.max(-.8,Math.min(.8,diff)));}
+      if(j===2&&!person.ragdoll&&!person.dead&&person.p.distanceToSquared(viewer)<9**2){const look=Math.atan2(person.p.x-viewer.x,person.p.z-viewer.z);const diff=(look-yaw+Math.PI*3)%(Math.PI*2)-Math.PI;q.setFromAxisAngle(UP,yaw+Math.max(-.8,Math.min(.8,diff)));}
       const offset=(person.id*32+j*2)*4;poseData.set([pose[j].x,pose[j].y,pose[j].z,1,q.x,q.y,q.z,q.w],offset);
     }
   }
@@ -101,7 +101,7 @@ export function createCityLife(scene,boxes,parked=[]){
     for(const car of parked){const distance=car.p.distanceToSquared(viewer);if(distance<320**2)write(distance<visualQuality.vehicleRange**2?parkedNear[car.type]:parkedFar[car.type],car.p,car.angle,car.color);}
     const near=[];
     for(const p of people){
-      if(!p.ragdoll){
+      if(!p.ragdoll&&!p.dead){
         if(p.crossing){
           p.crossing.progress=Math.min(1,p.crossing.progress+dt/7);p.p.copy(p.crossing.from).lerp(p.crossing.to,p.crossing.progress);p.yaw=Math.PI;
           if(p.crossing.progress===1){p.z+=44;p.phase=30.5;p.crossing=null;p.wait=0;}
@@ -119,13 +119,13 @@ export function createCityLife(scene,boxes,parked=[]){
       }
       const distance=p.p.distanceToSquared(viewer);
       if(npcs.isHeld(p)||distance<visualQuality.crowdRange**2||p.ragdoll&&distance<230**2)near.push({p,distance});
-      else if(distance<225**2)write(peopleFar,p.p,p.yaw,p.color,p.scale);
+      else if(!p.dead&&distance<225**2)write(peopleFar,p.p,p.yaw,p.color,p.scale);
     }
     near.sort((a,b)=>Number(!!b.p.ragdoll)-Number(!!a.p.ragdoll)||a.distance-b.distance);
-    for(let i=0;i<near.length;i++){const p=near[i].p;if(peopleNear.count>=visualQuality.crowdCapacity){if(!p.ragdoll)write(peopleFar,p.p,p.yaw,p.color,p.scale);continue;}
+    for(let i=0;i<near.length;i++){const p=near[i].p;if(peopleNear.count>=visualQuality.crowdCapacity){if(!p.ragdoll&&!p.dead)write(peopleFar,p.p,p.yaw,p.color,p.scale);continue;}
       const index=peopleNear.count;uploadPose(p,t,viewer);nearGeo.attributes.npcIndex.setX(index,p.id);color.set(p.color);nearGeo.attributes.npcShirt.setXYZ(index,color.r,color.g,color.b);color.set(p.skin);nearGeo.attributes.npcSkin.setXYZ(index,color.r,color.g,color.b);write(peopleNear,p.p,0,0xffffff,p.scale);
     }
-    for(let i=0;i<24;i++){const owner=people[(i*13+26)%people.length];if(owner.ragdoll)continue;position.copy(owner.p).add(V(.55,0,.1).applyAxisAngle(UP,owner.yaw));if(position.distanceToSquared(viewer)<130**2)write(dogs,position,owner.yaw,[0x9d7d53,0xd2cab7,0x57514a,0xb89d7a][i%4],.8+(i%4)*.1);}
+    for(let i=0;i<24;i++){const owner=people[(i*13+26)%people.length];if(owner.ragdoll||owner.dead)continue;position.copy(owner.p).add(V(.55,0,.1).applyAxisAngle(UP,owner.yaw));if(position.distanceToSquared(viewer)<130**2)write(dogs,position,owner.yaw,[0x9d7d53,0xd2cab7,0x57514a,0xb89d7a][i%4],.8+(i%4)*.1);}
     for(const bird of birds){position.set(bird.lane+Math.sin(t*.25+bird.phase)*3,bird.y+Math.sin(t*.18+bird.phase)*4,((bird.phase+t*bird.speed)%500)-250);if(position.distanceToSquared(viewer)<320**2)write(birdsMesh,position,Math.PI,0xffffff);}
     const aircraftPhase=t%105;aircraft.visible=aircraftPhase<36;aircraft.position.set(-480+aircraftPhase*27,210,-210);aircraft.rotation.y=-Math.PI/2;
     for(const car of [...traffic,...parked])if(car.p.distanceToSquared(viewer)<95**2)shadow(car.p,3.5,5.5,.007);

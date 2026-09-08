@@ -1,6 +1,6 @@
 import * as T from './vendor/three.module.min.js';
 import {enrichCity} from './city-detail.js?city=3';
-import {createCityLife} from './city-life.js?city=3';
+import {createCityLife} from './city-life.js?city=4';
 import {facadeMaterial,upgradeArchitecture,atmosphere,bakedShadows} from './city-look.js?visual=3';
 import {surfaceMaterial,foliageCrown} from './city-quality.js?visual=3';
 export function createCity(scene){

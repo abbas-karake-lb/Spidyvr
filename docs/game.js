@@ -1,7 +1,10 @@
 import * as T from './vendor/three.module.min.js';
 import {Movement,V,defaults} from './physics.js?pull=5';
-import {createCity} from './city.js?city=3';
+import {createCity} from './city.js?city=4';
 import {configureCityRendering,visualQuality} from './city-quality.js?visual=3';
+import {AnimatedHand} from './hands.js';
+import {WebVisual,webImpact} from './web-visual.js';
+import {Weapons} from './weapons.js';
 import {turnDelta,WebFlight,showVRPanel} from './traversal.js';
 const $=id=>document.getElementById(id);
 const scene=new T.Scene();scene.background=new T.Color(0xa3c3d4);scene.fog=new T.Fog(0xa9bac4,280,1000);
@@ -30,17 +33,16 @@ const flights=[new WebFlight(),new WebFlight()],flashTimers=[0,0],impactTimers=[
 const shooterOffset=V(0,.05,-.015),shooterWorld=[V(),V()];
 let shotBuffer=null;const shotPanners=[],shotVoices=[];
 for(let i=0;i<2;i++){
-  const group=new T.Group();
-  const glove=new T.Mesh(new T.SphereGeometry(.065,12,8),new T.MeshLambertMaterial({color:i===0?0xd44a49:0x4d91b5}));glove.scale.set(1,.85,1.5);group.add(glove);
-  const cuff=new T.Mesh(new T.CylinderGeometry(.055,.06,.09,10),new T.MeshLambertMaterial({color:0x1f3445}));cuff.rotation.x=Math.PI/2;cuff.position.z=.09;group.add(cuff);
-  const emitter=new T.Mesh(new T.SphereGeometry(.018,8,6),new T.MeshBasicMaterial({color:0x9effe6}));emitter.position.set(0,.05,-.015);group.add(emitter);
+  const group=new AnimatedHand(i);
   scene.add(group);group.visible=false;hands.push(group);
   const tip=new T.Mesh(new T.IcosahedronGeometry(.085,0),new T.MeshBasicMaterial({color:0xebfff9}));tip.visible=false;scene.add(tip);tips.push(tip);
-  const impact=new T.Mesh(new T.RingGeometry(.15,.23,16),new T.MeshBasicMaterial({color:0xd9fff0,side:T.DoubleSide,transparent:true,depthWrite:false}));impact.visible=false;scene.add(impact);impacts.push(impact);
-  const web=new T.Mesh(new T.CylinderGeometry(1,1,1,6),new T.MeshBasicMaterial({color:i===0?0xe0fff5:0xd6eeff}));web.visible=false;web.frustumCulled=false;scene.add(web);webs.push(web);
+  const impact=webImpact();impact.visible=false;scene.add(impact);impacts.push(impact);
+  const web=new WebVisual(i);web.visible=false;web.frustumCulled=false;scene.add(web);webs.push(web);
   const target=new T.Mesh(new T.SphereGeometry(.18,12,8),new T.MeshBasicMaterial({color:0x8cffe2,depthTest:false,transparent:true,opacity:.85}));target.visible=false;target.renderOrder=5;scene.add(target);targets.push(target);
   const beam=new T.Line(new T.BufferGeometry().setFromPoints([V(),V()]),new T.LineBasicMaterial({color:i===0?0x9bffe2:0x99d9ff,transparent:true,opacity:.3}));beam.visible=false;beam.frustumCulled=false;scene.add(beam);aimLines.push(beam);
 }
+const handsReady=renderer.isWebGLRenderer?Promise.all(hands.map(h=>h.load())):Promise.resolve();
+const weapons=new Weapons(scene,city.boxes,city.npcs,(hand,point)=>{pulse(hand,.8,55);gunSound(hand,point);});
 function cast(o,d,max=170){ray.set(o,d);let nearest=max,point=null;for(const box of city.boxes){if(ray.intersectBox(box,hit)){const distance=hit.distanceTo(o);if(distance>.25&&distance<nearest){nearest=distance;point=hit.clone();}}}return point;}
 function pulse(i,power=.4,duration=35){try{sources[i]?.gamepad?.hapticActuators?.[0]?.pulse(power,duration)?.catch(()=>{});}catch{}}
 function sound(freq=380){if(!audio)return;try{const osc=audio.createOscillator(),gain=audio.createGain();osc.frequency.setValueAtTime(freq,audio.currentTime);osc.frequency.exponentialRampToValueAtTime(freq*.35,audio.currentTime+.12);gain.gain.setValueAtTime(.06,audio.currentTime);gain.gain.exponentialRampToValueAtTime(.001,audio.currentTime+.14);osc.connect(gain).connect(audio.destination);osc.start();osc.stop(audio.currentTime+.15);}catch{}}
@@ -54,6 +56,14 @@ function fireSound(i,position){
     shotVoices[i]?.stop();const source=audio.createBufferSource();source.buffer=shotBuffer;source.connect(shotPanners[i]);shotVoices[i]=source;
     const p=shotPanners[i];p.positionX.value=position.x;p.positionY.value=position.y;p.positionZ.value=position.z;
     source.onended=()=>{source.disconnect();if(shotVoices[i]===source)shotVoices[i]=null;};source.start();
+  }catch{}
+}
+let gunBuffer=null;const gunPanners=[];
+function gunSound(hand,point){
+  if(!audio)return;try{
+    if(!gunBuffer){gunBuffer=audio.createBuffer(1,Math.ceil(audio.sampleRate*.2),audio.sampleRate);const data=gunBuffer.getChannelData(0);for(let n=0;n<data.length;n++){const t=n/audio.sampleRate;data[n]=((Math.random()*2-1)*Math.exp(-t*65)+Math.sin(t*2*Math.PI*105)*Math.exp(-t*25))*.24;}}
+    if(!gunPanners[hand]){const p=audio.createPanner();p.panningModel='HRTF';p.refDistance=1;p.connect(audio.destination);gunPanners[hand]=p;}
+    const p=gunPanners[hand];p.positionX.value=point.x;p.positionY.value=point.y;p.positionZ.value=point.z;const source=audio.createBufferSource();source.buffer=gunBuffer;source.connect(p);source.onended=()=>source.disconnect();source.start();
   }catch{}
 }
 function updateAudioPose(position,quaternion){
@@ -77,7 +87,7 @@ function advanceFlights(dt){for(let i=0;i<2;i++){
     const normal=surfaceNormal(to);impacts[i].position.copy(to).addScaledVector(normal,.06);impacts[i].quaternion.setFromUnitVectors(V(0,0,1),normal);impactTimers[i]=.18;
   }
 }}
-function releaseAll(){city.npcs.releaseAll();for(let i=0;i<2;i++){cancelWeb(i);previousHand[i]=null;triggerHeld[i]=false;reels[i]=false;mouse[i]=false;}keys.clear();jumpHeld=false;charge=0;}
+function releaseAll(){weapons.releaseAll();city.npcs.releaseAll();for(let i=0;i<2;i++){cancelWeb(i);previousHand[i]=null;triggerHeld[i]=false;reels[i]=false;mouse[i]=false;}keys.clear();jumpHeld=false;charge=0;}
 function reset(){releaseAll();physics.reset();lastHead=null;overlayTimer=8;sound(280);}
 function uiPlaying(playing){document.body.classList.toggle('playing',playing);$('menu').hidden=playing;$('footer').hidden=playing;$('hud').hidden=!playing||!!session;$('hint').hidden=!playing||!!session;$('crosshair').hidden=!playing||!!session;$('menuButton').hidden=!playing||!!session;}
 function pause(value){paused=value;vrHUD.visible=showVRPanel(!!session,paused);lastHud=-1;releaseAll();if(wind)wind.gain.value=0;overlayTimer=value?999:6;if(desktop)uiPlaying(!value);}
@@ -119,7 +129,7 @@ function updateHud(time,headPos,headQuat){
     ctx.fillStyle='white';ctx.font='30px sans-serif';ctx.fillText(`${Math.round(speed*3.6)} km/h     ${Math.round(physics.p.y)} m     ${ropeCount}/2 webs`,32,108);
     ctx.font='28px sans-serif';
     ctx.font='24px sans-serif';
-    const lines=['TRIGGER building: swing / person: web','BUILDING: pull down/back to launch','PERSON: move web hand to move body','STICK CLICK hold grab / release throw','GRIP reel / A hold-release jump','Left stick move / Right stick turn','B reset / X pull power / Y pause','Punch nearby people with hand motion'];
+    const lines=['TRIGGER building: swing / person: web','BUILDING: pull down/back to launch','PERSON: move web hand to move body','STICK CLICK hold grab / release throw','GRIP hold gun nearby / otherwise reel','A jump / Left move / Right turn','B reset / X pull power / Y pause','GUN: trigger fire / release grip throw'];
     lines.forEach((line,i)=>ctx.fillText(line,32,155+i*42));hudTexture.needsUpdate=true;
   }
   vrHUD.visible=showVRPanel(!!session,paused);comfort.visible=!!session&&settings.vignette&&!paused;
@@ -127,8 +137,13 @@ function updateHud(time,headPos,headQuat){
   $('charge').hidden=charge<=0||!!session;$('charge').firstElementChild.style.width=`${charge*100}%`;
 }
 const yawQuat=new T.Quaternion(),headQuat=new T.Quaternion(),headWorld=V(),moveWish=V();
-function processHand(i,o,d,offset,pressed,grip,delta,dt,grab=false){
+function processHand(i,o,d,offset,pressed,grip,delta,dt,grab=false,analog={}){
   handOffset[i].copy(offset);if(physics.ropes[i])physics.ropes[i].hand.copy(offset);
+  const weapon=!paused?weapons.input(i,{position:physics.p.clone().add(offset),quaternion:hands[i].quaternion,direction:d,delta,bodyVelocity:physics.v,grip,trigger:pressed,dt,canGrab:!city.npcs.grabs[i]}):{equipped:false};
+  if(weapon.grabbed){cancelWeb(i);city.npcs.releaseHand(i);pulse(i,.5,45);}
+  hands[i].update(paused?0:dt,{trigger:analog.trigger??Number(pressed),grip:analog.grip??Number(grip),touch:analog.touch,web:pressed&&!weapon.equipped,gun:weapon.equipped,grab,flash:flashTimers[i]});
+  if(weapon.equipped){targets[i].visible=aimLines[i].visible=false;triggerHeld[i]=pressed;reels[i]=false;return;}
+  if(weapon.released)triggerHeld[i]=pressed;
   if(!paused){const contact=city.npcs.handInput(i,physics.p.clone().add(offset),delta,physics.v,grab,dt);if(contact){pulse(i,contact==='punch'?.7:.4,35);sound(contact==='punch'?100:400);}}
   const buildingTarget=cast(o,d),npcTarget=city.npcs.raycast(o,d,buildingTarget?buildingTarget.distanceTo(o):170);
   const target=npcTarget?npcTarget.point:buildingTarget;targets[i].material.color.set(npcTarget?0xffd99c:0x8cffe2);targets[i].visible=!!target;if(target)targets[i].position.copy(target);
@@ -158,9 +173,9 @@ function updateXR(frame,dt){
   moveWish.set(0,0,0);let wantsJump=false;
   for(let i=0;i<2;i++){
     const source=sources[i],gp=source?.gamepad;
-    if(!source||!gp){cancelWeb(i);city.npcs.releaseHand(i);previousHand[i]=null;hands[i].visible=false;tracked[i]=false;triggerHeld[i]=false;buttonHistory[i]=[];continue;}
+    if(!source||!gp){cancelWeb(i);city.npcs.releaseHand(i);weapons.releaseHand(i);previousHand[i]=null;hands[i].visible=false;tracked[i]=false;triggerHeld[i]=false;buttonHistory[i]=[];continue;}
     const targetPose=frame.getPose(source.targetRaySpace,reference),gripPose=source.gripSpace?frame.getPose(source.gripSpace,reference):targetPose;
-    if(!targetPose||!gripPose){cancelWeb(i);city.npcs.releaseHand(i);previousHand[i]=null;hands[i].visible=false;tracked[i]=false;triggerHeld[i]=false;continue;}
+    if(!targetPose||!gripPose){cancelWeb(i);city.npcs.releaseHand(i);weapons.releaseHand(i);previousHand[i]=null;hands[i].visible=false;tracked[i]=false;triggerHeld[i]=false;continue;}
     tracked[i]=true;
     const p=gripPose.transform.position,orientation=gripPose.transform.orientation;
     const relative=V(p.x-headLocal.x,p.y-headLocal.y,p.z-headLocal.z);
@@ -173,7 +188,7 @@ function updateXR(frame,dt){
     const buttons=gp.buttons;
     if(i===1){wantsJump=!!buttons[4]?.pressed;if(buttonEdge(i,buttons,5)){reset();}}
     else {if(buttonEdge(i,buttons,4)){settings.pull=settings.pull<20?22:settings.pull<30?34:14;syncSettings();overlayTimer=6;pulse(i);}if(buttonEdge(i,buttons,5))pause(!paused);const x=gp.axes.length>=4?gp.axes[2]:gp.axes[0]||0,z=gp.axes.length>=4?gp.axes[3]:gp.axes[1]||0;moveWish.set(Math.abs(x)>.15?x:0,0,Math.abs(z)>.15?z:0);}
-    processHand(i,origin,direction,offset,!!buttons[0]?.pressed,!!buttons[1]?.pressed,delta,dt,!!buttons[3]?.pressed);
+    processHand(i,origin,direction,offset,!!buttons[0]?.pressed,!!buttons[1]?.pressed,delta,dt,!!buttons[3]?.pressed,{trigger:buttons[0]?.value??Number(!!buttons[0]?.pressed),grip:buttons[1]?.value??Number(!!buttons[1]?.pressed),touch:!!buttons[0]?.touched});
   }
   const forward=V(0,0,-1).applyQuaternion(headQuat);forward.y=0;if(forward.lengthSq()<.01)forward.set(0,0,-1);forward.normalize();const right=forward.clone().cross(worldUp);moveWish.copy(right.multiplyScalar(moveWish.x).addScaledVector(forward,-moveWish.z)).clampLength(0,1);
   updateJump(wantsJump,dt);return true;
@@ -187,17 +202,16 @@ function updateDesktop(dt){
   for(let i=0;i<2;i++){const offset=V(i===0?-.25:.25,1.35,-.4).applyAxisAngle(worldUp,yaw);hands[i].visible=true;hands[i].position.copy(physics.p).add(offset);hands[i].quaternion.copy(q);processHand(i,origin,direction,offset,mouse[i],keys.has(i===0?'KeyQ':'KeyE'),null,dt);}
   updateJump(keys.has('Space'),dt);headQuat.copy(q);
 }
-function drawWebs(){for(let i=0;i<2;i++){
-  // Rendering never releases a held rope, including when its line crosses geometry.
-  const npcWeb=city.npcs.webs[i],r=physics.ropes[i]||(npcWeb?{anchor:city.npcs.position(npcWeb.person,npcWeb.node)}:null),mesh=webs[i];
-  mesh.visible=!!r;
-  shooterWorld[i].copy(shooterOffset).applyQuaternion(hands[i].quaternion).add(hands[i].position);
+function drawWebs(dt=0){for(let i=0;i<2;i++){
+  // Geometry follows the same endpoints. Rendering has no access to change rope forces or length.
+  const npcWeb=city.npcs.webs[i],r=physics.ropes[i]||(npcWeb?{anchor:city.npcs.position(npcWeb.person,npcWeb.node),length:npcWeb.length}:null),mesh=webs[i];
+  mesh.visible=false;shooterWorld[i].copy(shooterOffset).applyQuaternion(hands[i].quaternion).add(hands[i].position);
   const flight=flights[i];tips[i].visible=flight.active&&!paused;impacts[i].visible=impactTimers[i]>0&&!paused;
-  if(flight.active&&!paused){const vector=flight.tip.clone().sub(shooterWorld[i]),length=vector.length();mesh.visible=true;mesh.position.copy(shooterWorld[i]).addScaledVector(vector,.5);mesh.quaternion.setFromUnitVectors(worldUp,vector.normalize());mesh.scale.set(.03,length,.03);tips[i].position.copy(flight.tip);targets[i].visible=false;aimLines[i].visible=false;}
+  if(flight.active&&!paused){mesh.update(shooterWorld[i],flight.tip,{dt,flight:true,progress:flight.elapsed/flight.duration});tips[i].position.copy(flight.tip);targets[i].visible=false;aimLines[i].visible=false;}
   if(impactTimers[i]>0){const progress=1-impactTimers[i]/.18;impacts[i].scale.setScalar(1+progress*2);impacts[i].material.opacity=1-progress;}
-  hands[i].children[2].scale.setScalar(1+flashTimers[i]*30);
-  if(r){const from=shooterWorld[i].clone(),vector=r.anchor.clone().sub(from),length=vector.length();mesh.position.copy(from).addScaledVector(vector,.5);mesh.quaternion.setFromUnitVectors(worldUp,vector.normalize());mesh.scale.set(.018,length,.018);targets[i].position.copy(r.anchor);targets[i].visible=true;}
-  if(session&&!tracked[i]){targets[i].visible=false;aimLines[i].visible=false;}
+  hands[i].emitter.scale.setScalar(1+flashTimers[i]*14);
+  if(r){mesh.update(shooterWorld[i],r.anchor,{dt,restLength:r.length||0,impact:impactTimers[i]>.16});targets[i].position.copy(r.anchor);targets[i].visible=true;}
+  if(weapons.held[i]||session&&!tracked[i]){targets[i].visible=false;aimLines[i].visible=false;}
 }}
 renderer.setAnimationLoop((milliseconds,frame)=>{
   const time=milliseconds/1000,dt=lastTime?Math.min(.05,Math.max(0,time-lastTime)):1/72;lastTime=time;
@@ -211,16 +225,18 @@ renderer.setAnimationLoop((milliseconds,frame)=>{
     else{rig.position.copy(physics.p);headWorld.copy(physics.p).add(V(0,1.7,0));}
     for(let i=0;i<2;i++)if(hands[i].visible)hands[i].position.copy(physics.p).add(handOffset[i]);
     if(!paused&&ready){for(let i=0;i<2;i++)city.npcs.hands[i].copy(physics.p).add(handOffset[i]);city.npcs.step(dt,physics.p,reels);}
-    drawWebs();updateHud(time,headWorld,headQuat);updateAudioPose(headWorld,headQuat);
+    for(let i=0;i<2;i++)weapons.sync(i,hands[i].position,hands[i].quaternion);
+    drawWebs(paused?0:dt);updateHud(time,headWorld,headQuat);updateAudioPose(headWorld,headQuat);
     if(wind)wind.gain.setTargetAtTime(!paused&&ready?Math.min(.18,physics.v.length()/350):0,audio.currentTime,.15);
   }else{
     rig.rotation.set(0,0,0);rig.position.set(65+Math.sin(time*.035)*15,100,100);camera.position.set(0,0,0);camera.lookAt(-10,20,-40);vrHUD.visible=false;comfort.visible=false;
     tips.forEach(h=>h.visible=false);impacts.forEach(h=>h.visible=false);hands.forEach(h=>h.visible=false);webs.forEach(w=>w.visible=false);targets.forEach(t=>t.visible=false);aimLines.forEach(l=>l.visible=false);
   }
+  weapons.update(dt,active?physics.p:rig.position,paused||!ready);
   city.update?.(time,active?physics.p:rig.position,paused);
   quality.update(active?physics.p:rig.position);
   renderer.render(scene,camera);
 });
 
 // Readable module exports also allow the integration harness to drive real input paths.
-export {updateXR,processHand,advanceFlights,drawWebs,updateHud,pause,reset,physics,flights,hands,webs,vrHUD,renderer,scene,city,quality};
+export {updateXR,processHand,advanceFlights,drawWebs,updateHud,pause,reset,physics,flights,hands,webs,vrHUD,renderer,scene,city,quality,weapons,handsReady};

@@ -5,7 +5,7 @@ const radii=bodyPoints.map((_,i)=>i===0||i===1?.19:i===2?.16:.085);
 const segment=new T.Line3(),scratch=V(),ray=new T.Ray(),sphere=new T.Sphere();
 export class NPCPhysics {
   constructor(people,boxes){this.people=people;this.boxes=boxes;this.active=[];this.maxActive=12;this.webs=[null,null];this.grabs=[null,null];this.hands=[V(),V()];this.handVelocity=[V(),V()];this.cooldown=[0,0];this.time=0;this.accumulator=0;this.viewer=V();}
-  position(person,node=1){return person.ragdoll?person.ragdoll.nodes[node].p:person.p.clone().add(V(...bodyPoints[node]).multiplyScalar(person.scale||1).applyAxisAngle(UP,person.yaw||0));}
+  position(person,node=1){return person.ragdoll?person.ragdoll.nodes[node].p:person.corpsePose?person.corpsePose[node]:person.p.clone().add(V(...bodyPoints[node]).multiplyScalar(person.scale||1).applyAxisAngle(UP,person.yaw||0));}
   activate(person){
     if(person.ragdoll)return person.ragdoll;
     if(this.active.length>=this.maxActive){const old=this.active.find(r=>!this.isHeld(r.person)&&r.age>8&&r.person.p.distanceToSquared(this.viewer)>70**2);if(!old)return null;this.retire(old);}
@@ -16,6 +16,7 @@ export class NPCPhysics {
   isHeld(person){return this.webs.some(w=>w?.person===person)||this.grabs.some(g=>g?.person===person);}
   retire(r){
     if(this.isHeld(r.person))return;this.active.splice(this.active.indexOf(r),1);const p=r.person;
+    if(p.dead){p.corpsePose=r.nodes.map(n=>n.p.clone());p.ragdoll=null;return;}
     p.recoverPose=r.nodes.map(n=>n.p.clone().sub(p.p).divideScalar(p.scale||1));p.ragdoll=null;p.crossing=null;p.wait=0;p.recover=1;p.recoverFrom=p.p.clone();
     p.x=Math.max(-220,Math.min(220,Math.round(p.p.x/44)*44));p.z=Math.max(-220,Math.min(220,Math.round(p.p.z/44)*44));
     const dx=p.p.x-p.x,dz=p.p.z-p.z;
@@ -33,6 +34,10 @@ export class NPCPhysics {
   }
   nearest(point,radius=.55){let best=null,dist=radius;for(const p of this.people){if(p.p.distanceToSquared(point)>9)continue;for(const node of [0,1,2,5,8]){const d=this.position(p,node).distanceTo(point);if(d<dist){dist=d;best={person:p,node};}}}return best;}
   impulse(person,node,velocity){const r=this.activate(person);if(!r)return false;for(let i=0;i<r.nodes.length;i++)r.nodes[i].v.addScaledVector(velocity,i===node?1.4:.65).clampLength(0,35);r.age=0;r.quiet=0;person.reactUntil=this.time+5;for(const other of this.people)if(other!==person&&other.p.distanceToSquared(person.p)<7**2)other.reactUntil=this.time+4;return true;}
+  kill(person,node,velocity){
+    if(!person.ragdoll&&this.active.length>=this.maxActive){const old=this.active.find(r=>r.person.dead&&!this.isHeld(r.person))||this.active.find(r=>!this.isHeld(r.person));if(old)this.retire(old);}
+    if(!this.impulse(person,node,velocity))return false;person.dead=true;person.health=0;person.crossing=null;person.wait=1;return true;
+  }
   attachWeb(hand,target){if(!this.activate(target.person))return false;this.webs[hand]={person:target.person,node:target.node,length:Math.max(1,this.position(target.person,target.node).distanceTo(this.hands[hand]))};return true;}
   releaseWeb(hand){this.webs[hand]=null;}
   pullWeb(hand,delta,dt){const w=this.webs[hand];if(!w||dt<=0||delta.length()>.3||delta.length()/dt<.18)return;
