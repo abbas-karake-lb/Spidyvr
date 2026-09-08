@@ -8,7 +8,7 @@ export async function questHarness(){
   function element(id){if(!elements.has(id))elements.set(id,{id,hidden:false,disabled:false,value:22,min:10,max:36,style:{},classList:{toggle(){}},appendChild(){},addEventListener(){},firstElementChild:{style:{}},getContext:canvasContext});return elements.get(id);}
   for(const [id,min,max] of [['pull',10,36],['jump',20,45],['gravity',9,22]])Object.assign(element(id),{min,max});
   const poses=[{p:{x:-.25,y:1.35,z:-.4},q:new THREE.Quaternion()},{p:{x:.25,y:1.35,z:-.4},q:new THREE.Quaternion()}];
-  const sources=poses.map((_,i)=>({handedness:i?'right':'left',targetRaySpace:{i},gripSpace:{i},gamepad:{axes:[0,0,0,0],buttons:Array.from({length:6},()=>({pressed:false})),hapticActuators:[{pulse:()=>Promise.resolve()}]}}));
+  const sources=poses.map((_,i)=>({handedness:i?'right':'left',targetRaySpace:{i,kind:'ray'},gripSpace:{i,kind:'grip'},gamepad:{axes:[0,0,0,0],buttons:Array.from({length:6},()=>({pressed:false})),hapticActuators:[{pulse:()=>Promise.resolve()}]}}));
   const session={inputSources:sources,visibilityState:'visible',listeners:{},addEventListener(type,fn){this.listeners[type]=fn;},async end(){this.listeners.end?.();}};
   class Renderer {constructor(){this.domElement={addEventListener(){},requestPointerLock(){}};this.xr={enabled:false,setReferenceSpaceType(){},setFramebufferScaleFactor(){},setFoveation(){},async setSession(){},getReferenceSpace:()=>({})};}setPixelRatio(){}setSize(){}setAnimationLoop(fn){this.frame=fn;}render(scene,camera){scene.updateMatrixWorld(true);camera.updateMatrixWorld(true);}}
   const param=()=>({value:0,setValueAtTime(){},exponentialRampToValueAtTime(){},setTargetAtTime(){}});
@@ -20,7 +20,7 @@ export async function questHarness(){
   const exported=Object.keys(THREE),three=new vm.SyntheticModule(exported,function(){for(const key of exported)this.setExport(key,key==='WebGLRenderer'?Renderer:THREE[key]);},{context});
   const cache=new Map();async function load(file){if(cache.has(file))return cache.get(file);const mod=new vm.SourceTextModule(await readFile(file,'utf8'),{context,identifier:file});cache.set(file,mod);await mod.link(async(specifier,parent)=>specifier.includes('/vendor/')?three:load(path.resolve(path.dirname(parent.identifier),specifier.split('?')[0])));return mod;}
   const game=await load(path.resolve('docs/game.js'));await game.evaluate();await element('enterVR').onclick();
-  const frame={getViewerPose:()=>({transform:{position:{x:0,y:1.7,z:0},orientation:{x:0,y:0,z:0,w:1}}}),getPose:space=>space?{transform:{position:poses[space.i].p,orientation:poses[space.i].q}}:null};
+  const frame={getViewerPose:()=>({transform:{position:{x:0,y:1.7,z:0},orientation:{x:0,y:0,z:0,w:1}}}),getPose:space=>space?{transform:{position:space.kind==='ray'?(poses[space.i].rayP??poses[space.i].p):poses[space.i].p,orientation:space.kind==='ray'?(poses[space.i].rayQ??poses[space.i].q):poses[space.i].q}}:null};
   let clock=1000;const api=game.namespace;
   function tick(dt=1/72){clock+=dt*1000;api.renderer.frame(clock,frame);}
   function aim(i,target){const from=api.physics.p.clone().add(new THREE.Vector3(poses[i].p.x,poses[i].p.y,poses[i].p.z));poses[i].q.setFromUnitVectors(new THREE.Vector3(0,0,-1),target.clone().sub(from).normalize());}

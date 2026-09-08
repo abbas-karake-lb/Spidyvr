@@ -2,9 +2,9 @@ import * as T from './vendor/three.module.min.js';
 import {Movement,V,defaults} from './physics.js?pull=5';
 import {createCity} from './city.js?city=4';
 import {configureCityRendering,visualQuality} from './city-quality.js?visual=3';
-import {AnimatedHand} from './hands.js?grip=2';
+import {AnimatedHand} from './hands.js?grip=3';
 import {WebVisual,webImpact} from './web-visual.js';
-import {Weapons} from './weapons.js';
+import {Weapons} from './weapons.js?grip=3';
 import {turnDelta,WebFlight,showVRPanel} from './traversal.js';
 const $=id=>document.getElementById(id);
 const scene=new T.Scene();scene.background=new T.Color(0xa3c3d4);scene.fog=new T.Fog(0xa9bac4,280,1000);
@@ -139,7 +139,7 @@ function updateHud(time,headPos,headQuat){
 const yawQuat=new T.Quaternion(),headQuat=new T.Quaternion(),headWorld=V(),moveWish=V();
 function processHand(i,o,d,offset,pressed,grip,delta,dt,grab=false,analog={}){
   handOffset[i].copy(offset);if(physics.ropes[i])physics.ropes[i].hand.copy(offset);
-  const weapon=!paused?weapons.input(i,{position:physics.p.clone().add(offset),quaternion:hands[i].quaternion,direction:d,delta,bodyVelocity:physics.v,grip,trigger:pressed,dt,canGrab:!city.npcs.grabs[i]}):{equipped:false};
+  const weapon=!paused?weapons.input(i,{position:physics.p.clone().add(offset),quaternion:hands[i].quaternion,direction:d,delta,bodyVelocity:physics.v,grip,trigger:pressed,dt,canGrab:!city.npcs.grabs[i],socket:hands[i].gunSocket}):{equipped:false};
   if(weapon.grabbed){cancelWeb(i);city.npcs.releaseHand(i);pulse(i,.5,45);}
   hands[i].update(paused?0:dt,{trigger:analog.trigger??Number(pressed),grip:analog.grip??Number(grip),touch:analog.touch,web:pressed&&!weapon.equipped,gun:weapon.equipped,grab,flash:flashTimers[i]});
   if(weapon.equipped){targets[i].visible=aimLines[i].visible=false;triggerHeld[i]=pressed;reels[i]=false;return;}

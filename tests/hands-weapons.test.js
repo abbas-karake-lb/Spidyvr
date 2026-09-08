@@ -49,6 +49,8 @@ test('Quest flow: grip pickup, trigger fire, other-hand web, throw, immediate we
   const item=api.weapons.items[0];item.p.copy(api.hands[0].position);item.home.copy(item.p);
   sources[0].gamepad.buttons[1].pressed=true;h.tick();assert.equal(api.weapons.held[0],item);assert.equal(api.physics.ropes[0],null);assert.equal(api.hands[0].pose,'gun');
   const victim=api.city.life.people[0];victim.p.set(-.25,32,-5);api.city.npcs.activate(victim);h.aim(0,api.city.npcs.position(victim,1));
+  // Aim the held barrel, accounting for the controller-to-palm grip tilt.
+  poses[0].q.multiply(new T.Quaternion().setFromAxisAngle(V(1,0,0),Math.PI/4));
   sources[0].gamepad.buttons[0].pressed=true;h.tick();assert.ok(victim.dead);assert.equal(api.weapons.shots,1);assert.equal(api.flights[0].active,false);
   const tall=api.city.boxes.find(b=>b.max.y>60&&b.min.z< -20&&b.max.z> -80&&b.min.x<15&&b.max.x> -15),target=V((tall.min.x+tall.max.x)/2,55,tall.max.z);
   h.aim(1,target);sources[1].gamepad.buttons[0].pressed=true;for(let i=0;i<20;i++)h.tick();assert.ok(api.physics.ropes[1]);assert.equal(api.weapons.shots,1,'holding trigger must not create uncontrolled repeated shots');
@@ -62,4 +64,47 @@ test('dual gun ownership, tracking loss and safety releases do not duplicate pic
   const first=api.weapons.held[0];api.weapons.velocities[0].set(30,20,10);h.session.inputSources=[sources[1]];h.tick();assert.equal(api.weapons.held[0],null);assert.ok(first.v.length()<1);assert.ok(api.weapons.held[1]);
   h.session.visibilityState='hidden';h.tick();assert.equal(api.weapons.held[1],null);assert.equal(api.weapons.shots,0);
   h.session.visibilityState='visible';h.tick();assert.equal(api.weapons.held[1],null,'resume requires a fresh grip press');
+});
+
+test('palm and gun stay rigidly aligned through forward bends, rolls, overhead poses and turns',()=>{
+  for(const side of [0,1]){
+    const hand=new AnimatedHand(side).install(buffer(side?'right':'left'));
+    const gun=new T.Object3D(),handle=V(0,-.047,-.015),center=V(0,-.032,-.072),socketQ=new T.Quaternion();
+    const weapons=new Weapons(new T.Scene(),[new T.Box3(V(-2,0,20),V(2,3,24))],new NPCPhysics([],[]));
+    weapons.held[side]=weapons.items[0];weapons.sockets[side]=hand.gunSocket;
+    hand.updateMatrixWorld(true);const relative=hand.wrist.getWorldQuaternion(new T.Quaternion()).invert().multiply(hand.gunSocket.getWorldQuaternion(new T.Quaternion()));
+    for(const angles of [[0,0,0],[Math.PI/2,0,0],[-Math.PI/2,0,0],[0,0,Math.PI/2],[0,0,-Math.PI/2],[.8,-1.4,2.1],[0,Math.PI,Math.PI]]){
+      hand.position.set(8,24,-17);hand.quaternion.setFromEuler(new T.Euler(...angles));hand.updateMatrixWorld(true);
+      weapons.sync(side,hand.position,hand.quaternion);const item=weapons.held[side];
+      hand.gunSocket.getWorldQuaternion(socketQ);assert.ok(item.mesh.quaternion.angleTo(socketQ)<1e-7);
+      const local=hand.wrist.getWorldQuaternion(new T.Quaternion()).invert().multiply(item.mesh.quaternion);assert.ok(local.angleTo(relative)<1e-7);
+      assert.ok(hand.wrist.localToWorld(center.clone()).distanceTo(hand.position)<1e-8,'fist rotates about tracked grip center');
+      gun.position.copy(item.mesh.position);gun.quaternion.copy(item.mesh.quaternion);gun.updateMatrixWorld(true);
+      assert.ok(gun.localToWorld(handle.clone()).distanceTo(hand.position)<1e-8,'gun handle remains inside fist');
+      // Barrel and the extended fingers have the same axis for either hand.
+      const fingers=V(0,0,-1).applyQuaternion(hand.wrist.getWorldQuaternion(new T.Quaternion()));
+      assert.ok(fingers.distanceTo(V(0,0,-1).applyQuaternion(item.mesh.quaternion))<1e-8);
+      assert.deepEqual(hand.emitter.position.toArray(),[0,.05,-.015],'web emitter and physics origin are unchanged');
+    }
+  }
+});
+
+test('Quest grip pose drives both hands and guns independently of the target ray at 72/90/120 Hz',async()=>{
+  const h=await questHarness(),{api,poses,sources}=h;h.tick();
+  for(let side=0;side<2;side++){
+    api.weapons.items[side].p.copy(api.hands[side].position);sources[side].gamepad.buttons[1].pressed=true;
+    poses[side].rayQ=new T.Quaternion().setFromEuler(new T.Euler(-.2,.4,.1));
+  }
+  h.tick();
+  for(const hz of [72,90,120])for(const angles of [[Math.PI/2,0,0],[0,0,Math.PI],[-1.3,.9,-.7]]){
+    for(let side=0;side<2;side++)poses[side].q.setFromEuler(new T.Euler(...angles));
+    h.tick(1/hz);
+    for(let side=0;side<2;side++){
+      const hand=api.hands[side],item=api.weapons.held[side];assert.ok(item);
+      assert.ok(hand.quaternion.angleTo(poses[side].q)<1e-7);
+      assert.ok(item.mesh.quaternion.angleTo(hand.gunSocket.getWorldQuaternion(new T.Quaternion()))<1e-7);
+      const before=item.mesh.quaternion.clone();poses[side].rayQ.setFromEuler(new T.Euler(.6,-2.5,.8));
+      h.tick(1/hz);assert.ok(item.mesh.quaternion.angleTo(before)<1e-7,'aim ray cannot twist the held gun');
+    }
+  }
 });

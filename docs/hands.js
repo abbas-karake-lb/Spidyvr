@@ -20,16 +20,26 @@ export function parseHand(buffer,side=0){
 export class AnimatedHand extends T.Group {
   constructor(side){
     super();this.side=side;this.curls=[.14,.2,.24,.28,.12];this.pose='relaxed';this.model=null;
-    this.wrist=new T.Group();this.wrist.position.set(0,.035,.06);
-    // The asset has its palm along -Y. Controller grips need inward-facing palms:
-    // left +X / right -X, with both thumbs up. Roll only the cosmetic model,
-    // leaving the tracked root, aim, web emitter and measured hand motion intact.
-    this.wrist.rotation.z=side?-Math.PI/2:Math.PI/2;this.add(this.wrist);
+    this.wrist=new T.Group();
+    // Grip-local composition, not world-space Euler correction: pitch * side roll.
+    // WebXR controller hands use a forward grip tilt as well as inward palms.
+    // Reference: aframevr/aframe src/components/hand-controls.js (WebXR -PI/4 X).
+    this.wrist.rotation.set(-Math.PI/4,0,side?-Math.PI/2:Math.PI/2,'XYZ');
+    // This asset is wrist-origin; gripSpace is centered inside the closed fist.
+    // Place the grasp center at gripSpace's origin so wrist rolls do not orbit it.
+    const graspCenter=V(0,-.032,-.072);
+    this.wrist.position.copy(graspCenter).applyQuaternion(this.wrist.quaternion).negate();this.add(this.wrist);
+    // A rigid socket in the same hand frame. The pistol handle's center is
+    // (0,-.047,-.015); place that inside the fist, with its barrel along the fingers.
+    this.gunSocket=new T.Group();this.gunSocket.name='palm-gun-socket';
+    const gunRotation=new T.Quaternion().setFromAxisAngle(AXIS,-Math.PI/4),inverseHand=this.wrist.quaternion.clone().invert();
+    this.gunSocket.quaternion.copy(inverseHand).multiply(gunRotation);
+    this.gunSocket.position.copy(V(0,-.047,-.015).applyQuaternion(gunRotation).negate().sub(this.wrist.position).applyQuaternion(inverseHand));this.wrist.add(this.gunSocket);
     // Anatomical fallback remains usable if a local asset request fails.
     const fallback=new T.Group(),mat=new T.MeshStandardMaterial({color:side?0x39748e:0xb4262d,roughness:.6}),geo=new T.SphereGeometry(1,12,8);
     const part=(size,p)=>{const m=new T.Mesh(geo,mat);m.scale.fromArray(size);m.position.fromArray(p);fallback.add(m);};part([.044,.02,.05],[0,0,-.045]);
     for(let f=0;f<4;f++)part([.009,.01,.039],[(f-1.5)*.021,0,-.118+(f===3?.016:0)]);part([.012,.015,.028],[side?-.054:.054,-.015,-.057]);this.wrist.add(fallback);this.fallback=fallback;
-    const cuff=new T.Mesh(new T.CylinderGeometry(.032,.035,.044,16),new T.MeshStandardMaterial({color:0x223747,roughness:.45,metalness:.45}));cuff.rotation.x=Math.PI/2;cuff.position.set(0,.035,.07);this.add(cuff);
+    const cuff=new T.Mesh(new T.CylinderGeometry(.032,.035,.044,16),new T.MeshStandardMaterial({color:0x223747,roughness:.45,metalness:.45}));cuff.rotation.x=Math.PI/2;cuff.position.set(0,0,.01);this.wrist.add(cuff);
     this.emitter=new T.Mesh(new T.SphereGeometry(.009,12,8),new T.MeshStandardMaterial({color:0xd2e1e2,metalness:.85,roughness:.2,emissive:0x244842}));this.emitter.position.set(0,.05,-.015);this.add(this.emitter);
   }
   install(buffer){this.model=parseHand(buffer,this.side);this.wrist.remove(this.fallback);this.wrist.add(this.model.mesh);this.animate(0);return this;}
