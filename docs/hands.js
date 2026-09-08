@@ -20,7 +20,11 @@ export function parseHand(buffer,side=0){
 export class AnimatedHand extends T.Group {
   constructor(side){
     super();this.side=side;this.curls=[.14,.2,.24,.28,.12];this.pose='relaxed';this.model=null;
-    this.wrist=new T.Group();this.wrist.position.set(0,.035,.06);this.add(this.wrist);
+    this.wrist=new T.Group();this.wrist.position.set(0,.035,.06);
+    // The asset has its palm along -Y. Controller grips need inward-facing palms:
+    // left +X / right -X, with both thumbs up. Roll only the cosmetic model,
+    // leaving the tracked root, aim, web emitter and measured hand motion intact.
+    this.wrist.rotation.z=side?-Math.PI/2:Math.PI/2;this.add(this.wrist);
     // Anatomical fallback remains usable if a local asset request fails.
     const fallback=new T.Group(),mat=new T.MeshStandardMaterial({color:side?0x39748e:0xb4262d,roughness:.6}),geo=new T.SphereGeometry(1,12,8);
     const part=(size,p)=>{const m=new T.Mesh(geo,mat);m.scale.fromArray(size);m.position.fromArray(p);fallback.add(m);};part([.044,.02,.05],[0,0,-.045]);

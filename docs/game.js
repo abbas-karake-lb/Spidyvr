@@ -2,7 +2,7 @@ import * as T from './vendor/three.module.min.js';
 import {Movement,V,defaults} from './physics.js?pull=5';
 import {createCity} from './city.js?city=4';
 import {configureCityRendering,visualQuality} from './city-quality.js?visual=3';
-import {AnimatedHand} from './hands.js';
+import {AnimatedHand} from './hands.js?grip=2';
 import {WebVisual,webImpact} from './web-visual.js';
 import {Weapons} from './weapons.js';
 import {turnDelta,WebFlight,showVRPanel} from './traversal.js';
