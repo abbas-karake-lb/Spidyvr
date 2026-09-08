@@ -1,5 +1,5 @@
 import * as T from './vendor/three.module.min.js';
-import {Movement,V,defaults} from './physics.js?pull=6';
+import {Movement,V,defaults} from './physics.js?pull=5';
 import {createCity} from './city.js?city=4';
 import {configureCityRendering,visualQuality} from './city-quality.js?visual=3';
 import {AnimatedHand} from './hands.js?grip=3';
@@ -76,7 +76,7 @@ function surfaceNormal(point){
   for(const box of city.boxes)if(point.x>=box.min.x-.02&&point.x<=box.max.x+.02&&point.y>=box.min.y-.02&&point.y<=box.max.y+.02&&point.z>=box.min.z-.02&&point.z<=box.max.z+.02){for(const axis of ['x','y','z'])for(const side of ['min','max'])if(Math.abs(point[axis]-box[side][axis])<.02){const normal=V();normal[axis]=side==='min'?-1:1;return normal;}}
   return V(0,1,0);
 }
-function cancelWeb(i,launch=false){const power=physics.release(i,launch);city.npcs.releaseWeb(i);flightNPC[i]=null;flights[i].cancel();impactTimers[i]=0;flashTimers[i]=0;if(power>.22)pulse(i,Math.min(.7,power*.12),18);}
+function cancelWeb(i){physics.release(i);city.npcs.releaseWeb(i);flightNPC[i]=null;flights[i].cancel();impactTimers[i]=0;flashTimers[i]=0;}
 function advanceFlights(dt){for(let i=0;i<2;i++){
   flashTimers[i]=Math.max(0,flashTimers[i]-dt);impactTimers[i]=Math.max(0,impactTimers[i]-dt);
   if(flights[i].active&&flightNPC[i])flights[i].target.copy(city.npcs.position(flightNPC[i].person,flightNPC[i].node));
@@ -154,11 +154,10 @@ function processHand(i,o,d,offset,pressed,grip,delta,dt,grab=false,analog={}){
     fireSound(i,shooterWorld[i]);flashTimers[i]=.07;
     if(target){flightNPC[i]=npcTarget;flights[i].fire(shooterWorld[i],target);pulse(i,.22,20);}else pulse(i,.15,18);
   }
-  // Include the final tracked movement on the trigger-up frame before releasing.
-  if(physics.ropes[i]&&delta&&!paused)physics.pull(i,delta,dt,true);
-  if(!pressed&&triggerHeld[i])cancelWeb(i,!paused);
+  if(!pressed&&triggerHeld[i])cancelWeb(i);
   triggerHeld[i]=pressed;reels[i]=grip&&!paused;
   if(city.npcs.webs[i]&&delta&&!paused)city.npcs.pullWeb(i,delta,dt);
+  if(physics.ropes[i]&&delta&&!paused){const power=physics.pull(i,delta,dt);if(power>.22)pulse(i,Math.min(.7,power*.12),18);}
 }
 function buttonEdge(i,buttons,index){const now=!!buttons[index]?.pressed,edge=now&&!buttonHistory[i][index];buttonHistory[i][index]=now;return edge;}
 function updateXR(frame,dt){

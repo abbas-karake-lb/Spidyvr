@@ -18,9 +18,8 @@ test('Quest full flow: dual fire, spatial fire audio, flight, impact, pull, rele
   for(let i=0;i<2;i++){h.aim(i,target.clone().add(V(i?1:-1,0,0)));sources[i].gamepad.buttons[0].pressed=true;}
   const priorAudio=h.audioEvents.length;h.tick();assert.ok(api.flights[0].active&&api.flights[1].active);assert.equal(api.physics.ropes.filter(Boolean).length,0);assert.ok(h.audioEvents.length>=priorAudio+2);assert.notEqual(h.audioEvents.at(-1).destination.positionX.value,h.audioEvents.at(-2).destination.positionX.value);
   for(let n=0;n<18;n++)h.tick();assert.equal(api.physics.ropes.filter(Boolean).length,2);assert.equal(api.vrHUD.visible,false);
-  const pullAt=api.physics.lastPullAt;for(let n=0;n<6;n++){poses[0].p.z+=.035;poses[1].p.z+=.035;h.tick();assert.equal(api.physics.lastPullAt,pullAt,'held strokes only record the gesture; passive spring forces remain active');}
-  const before=api.physics.v.z;for(let i=0;i<2;i++)sources[i].gamepad.buttons[0].pressed=false;h.tick();assert.ok(api.physics.v.z<before-5,'dual release applies both recorded pulls');
-  // Holding right stick after launch updates every frame, without inventing hand strokes.
+  const before=api.physics.v.z;for(let n=0;n<6;n++){poses[0].p.z+=.035;poses[1].p.z+=.035;h.tick();}assert.ok(api.physics.v.z<before);
+  // Holding right stick while swinging updates every frame, without inventing hand strokes.
   sources[1].gamepad.axes[2]=.45;let rotations=[];for(let n=0;n<8;n++){h.tick();rotations.push(api.hands[1].quaternion.y);}assert.ok(new Set(rotations).size===8);assert.ok(api.physics.v.toArray().every(Number.isFinite));sources[1].gamepad.axes[2]=0;
   for(let i=0;i<2;i++)sources[i].gamepad.buttons[0].pressed=false;h.tick();assert.equal(api.physics.ropes.filter(Boolean).length,0);
   // Reset facing by ending/re-entering; covers the lifecycle as well as immediate cancellation/refire.
@@ -47,9 +46,9 @@ test('Quest controller flow: fast travel, new web, opposite-hand pull, elastic w
     // Start within the rest length to check the existing slack-rope pull flow.
     api.physics.p.y-=15;api.physics.v.set(0,0,80);
     poses[hand].p.y-=.06;poses[hand].p.z+=.04;h.tick();
-    assert.ok(api.physics.v.z>79,'new pull must not redirect momentum while held');assert.equal(rope.length,length);
-    for(let i=0;i<8;i++){poses[hand].p.y-=.04;poses[hand].p.z+=.025;h.tick();}assert.ok(api.physics.v.z>78);
-    sources[hand].gamepad.buttons[0].pressed=false;h.tick();assert.equal(api.physics.ropes[hand],null);assert.ok(api.physics.v.z< -5&&api.physics.v.y>0,'release redirects and boosts');
+    assert.ok(api.physics.v.z<0,'new pull must reverse old forward momentum immediately');assert.ok(api.physics.v.y>0);assert.equal(rope.length,length);
+    for(let i=0;i<8;i++){poses[hand].p.y-=.04;poses[hand].p.z+=.025;h.tick();}assert.ok(api.physics.v.z< -5);
+    sources[hand].gamepad.buttons[0].pressed=false;h.tick();assert.equal(api.physics.ropes[hand],null);
     h.aim(hand,V(0,32,0));sources[hand].gamepad.buttons[0].pressed=true;h.tick();assert.ok(api.flights[hand].active);
     for(let i=0;i<18;i++)h.tick();assert.ok(api.physics.ropes[hand]);assert.equal(api.vrHUD.visible,false);
   }
@@ -74,9 +73,8 @@ test('turning around during fast flight then pulling redirects world momentum th
   api.physics.p.set(0,120,0);api.physics.v.set(0,0,-80);h.aim(1,V(0,32,0));sources[1].gamepad.buttons[0].pressed=true;h.tick();assert.ok(api.flights[1].active);
   for(let n=0;n<18;n++)h.tick();const rope=api.physics.ropes[1];assert.ok(rope);const length=rope.length;
   poses[1].p.y-=.07;poses[1].p.z+=.05;h.tick();
-  assert.ok(api.physics.v.z<0,'a held stroke after a half-turn must preserve the original flight');
+  assert.ok(api.physics.v.z>0,'a backward hand stroke after a half-turn must reverse the original flight');
   assert.equal(api.physics.ropes[1],rope);assert.equal(rope.length,length);assert.ok(api.physics.p.clone().add(rope.hand).distanceTo(rope.anchor)<length+40);
-  sources[1].gamepad.buttons[0].pressed=false;h.tick();assert.ok(api.physics.v.z>0,'releasing the backward stroke reverses the original flight');
 });
 
 test('Quest triggers catch high-speed flight elastically from both hands at 72/90/120 Hz without a hand pull',async()=>{
