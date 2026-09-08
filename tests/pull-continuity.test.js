@@ -47,7 +47,7 @@ test('Quest flow: fly, attach from either hand, adjust it slightly, then pull do
     h.aim(hand,V((b.min.x+b.max.x)/2,b.max.y,(b.min.z+b.max.z)/2));sources[hand].gamepad.buttons[0].pressed=true;h.tick();assert.ok(api.flights[hand].active);
     for(let n=0;n<18;n++)h.tick();assert.ok(api.physics.ropes[hand]);
     for(let n=0;n<18;n++){poses[hand].p.y-=.003;poses[hand].p.z+=.001;h.tick();assert.ok(api.physics.v.z< -58,'small grip adjustment must not stop flight');}
-    poses[hand].p.y-=.065;poses[hand].p.z+=.035;h.tick();assert.ok(api.physics.v.y>5&&api.physics.v.z< -5);
-    const up=api.physics.v.y;sources[hand].gamepad.buttons[0].pressed=false;h.tick();assert.equal(api.physics.ropes[hand],null);assert.ok(api.physics.v.y>up-.5);
+    poses[hand].p.y-=.065;poses[hand].p.z+=.035;h.tick();assert.ok(api.physics.v.z< -58,'even a deliberate pull must preserve flight while held');
+    sources[hand].gamepad.buttons[0].pressed=false;h.tick();assert.equal(api.physics.ropes[hand],null);assert.ok(api.physics.v.y>5&&api.physics.v.z< -5,'the release applies the sampled pull');
   }
 });
