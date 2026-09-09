@@ -4,7 +4,9 @@ import {createCity} from './city.js?city=4';
 import {configureCityRendering,visualQuality} from './city-quality.js?visual=3';
 import {AnimatedHand} from './hands.js?grip=3';
 import {WebVisual,webImpact} from './web-visual.js';
-import {Weapons} from './weapons.js?grip=3';
+import {Weapons} from './weapons.js?quarantine=1';
+import {createQuarantineBuilding,towerPoint} from './quarantine-building.js';
+import {QuarantineChallenge} from './quarantine-zombies.js';
 import {turnDelta,WebFlight,showVRPanel} from './traversal.js';
 const $=id=>document.getElementById(id);
 const scene=new T.Scene();scene.background=new T.Color(0xa3c3d4);scene.fog=new T.Fog(0xa9bac4,280,1000);
@@ -18,6 +20,7 @@ $('viewport').appendChild(renderer.domElement);
 const camera=new T.PerspectiveCamera(72,innerWidth/innerHeight,.08,1100);camera.rotation.order='YXZ';
 const rig=new T.Group();rig.add(camera);scene.add(rig);
 const city=createCity(scene),quality=configureCityRendering(renderer,scene,sun,city);const physics=new Movement(city.boxes);
+const tower=createQuarantineBuilding(scene),shotBoxes=[...city.boxes,...tower.solids];
 const settings={...defaults,vignette:false};try{const saved=JSON.parse(localStorage.getItem('spidyvr-settings')||'{}');for(const key of ['pull','jump','gravity'])if(Number.isFinite(saved[key]))settings[key]=Math.max(+$(key).min,Math.min(+$(key).max,saved[key]));settings.vignette=!!saved.vignette;}catch{}
 Object.assign(physics.settings,settings);
 function syncSettings(){for(const k of ['pull','jump','gravity']){$(k).value=settings[k];$(k+'Value').value=settings[k];} $('vignette').checked=settings.vignette;Object.assign(physics.settings,settings);try{localStorage.setItem('spidyvr-settings',JSON.stringify(settings));}catch{}}
@@ -42,8 +45,16 @@ for(let i=0;i<2;i++){
   const beam=new T.Line(new T.BufferGeometry().setFromPoints([V(),V()]),new T.LineBasicMaterial({color:i===0?0x9bffe2:0x99d9ff,transparent:true,opacity:.3}));beam.visible=false;beam.frustumCulled=false;scene.add(beam);aimLines.push(beam);
 }
 const handsReady=renderer.isWebGLRenderer?Promise.all(hands.map(h=>h.load())):Promise.resolve();
-const weapons=new Weapons(scene,city.boxes,city.npcs,(hand,point)=>{pulse(hand,.8,55);gunSound(hand,point);});
-function cast(o,d,max=170){ray.set(o,d);let nearest=max,point=null;for(const box of city.boxes){if(ray.intersectBox(box,hit)){const distance=hit.distanceTo(o);if(distance>.25&&distance<nearest){nearest=distance;point=hit.clone();}}}return point;}
+const weapons=new Weapons(scene,city.boxes,city.npcs,(hand,point)=>{pulse(hand,.8,55);gunSound(hand,point);});weapons.boxes=shotBoxes;
+const supplies=[weapons.spawnPickup(towerPoint(-11.25,1.65,-6.6),{name:'QUARANTINE · BREACHER',damage:90,cooldown:.32,tint:0xc6d4cb}),weapons.spawnPickup(towerPoint(-11.25,1.65,-4.4),{name:'QUARANTINE · RAPID',damage:45,cooldown:.13,automatic:true,tint:0x77b8b3})];
+let rewardGun=null;
+const challenge=new QuarantineChallenge(scene,tower,{
+  voice:point=>zombieSound(point),
+  hit:()=>{pulse(0,.65,100);pulse(1,.65,100);sound(95);},
+  respawn:point=>{releaseAll();physics.reset(point);lastHead=null;previousHand.fill(null);tower.resetLift();for(const item of supplies)if(item.owner===null){item.state='floating';item.p.copy(item.home);item.v.set(0,0,0);}sound(160);},
+  reward:point=>{if(!rewardGun)rewardGun=weapons.spawnPickup(point,{name:'WARDEN · GOLD REWARD',damage:150,cooldown:.09,automatic:true,tint:0xffc658});else if(rewardGun.owner===null){rewardGun.home.copy(point);rewardGun.p.copy(point);rewardGun.state='floating';rewardGun.v.set(0,0,0);}sound(880);pulse(0,.5,150);pulse(1,.5,150);}
+});weapons.combat=challenge;
+function cast(o,d,max=170){ray.set(o,d);let nearest=max,point=null;for(const box of weapons.boxes){if(ray.intersectBox(box,hit)){const distance=hit.distanceTo(o);if(distance>.25&&distance<nearest){nearest=distance;point=hit.clone();}}}return point;}
 function pulse(i,power=.4,duration=35){try{sources[i]?.gamepad?.hapticActuators?.[0]?.pulse(power,duration)?.catch(()=>{});}catch{}}
 function sound(freq=380){if(!audio)return;try{const osc=audio.createOscillator(),gain=audio.createGain();osc.frequency.setValueAtTime(freq,audio.currentTime);osc.frequency.exponentialRampToValueAtTime(freq*.35,audio.currentTime+.12);gain.gain.setValueAtTime(.06,audio.currentTime);gain.gain.exponentialRampToValueAtTime(.001,audio.currentTime+.14);osc.connect(gain).connect(audio.destination);osc.start();osc.stop(audio.currentTime+.15);}catch{}}
 async function startAudio(){try{if(!audio){audio=new AudioContext();const buffer=audio.createBuffer(1,audio.sampleRate*2,audio.sampleRate),data=buffer.getChannelData(0);for(let i=0;i<data.length;i++)data[i]=(Math.random()-.5)*.3;const noise=audio.createBufferSource();noise.buffer=buffer;noise.loop=true;const filter=audio.createBiquadFilter();filter.type='lowpass';filter.frequency.value=600;wind=audio.createGain();wind.gain.value=0;noise.connect(filter).connect(wind).connect(audio.destination);noise.start();}await audio.resume();}catch{}}
@@ -66,6 +77,14 @@ function gunSound(hand,point){
     const p=gunPanners[hand];p.positionX.value=point.x;p.positionY.value=point.y;p.positionZ.value=point.z;const source=audio.createBufferSource();source.buffer=gunBuffer;source.connect(p);source.onended=()=>source.disconnect();source.start();
   }catch{}
 }
+let zombieBuffer=null,zombiePanner=null;
+function zombieSound(point){
+  if(!audio)return;try{
+    if(!zombieBuffer){zombieBuffer=audio.createBuffer(1,Math.ceil(audio.sampleRate*.7),audio.sampleRate);const d=zombieBuffer.getChannelData(0);for(let n=0;n<d.length;n++){const t=n/audio.sampleRate,envelope=Math.sin(Math.PI*t/.7)**2;d[n]=(Math.sin(t*420+Math.sin(t*31)*2)*.65+(Math.random()*2-1)*.2)*envelope*.12;}}
+    if(!zombiePanner){zombiePanner=audio.createPanner();zombiePanner.panningModel='HRTF';zombiePanner.refDistance=2;zombiePanner.rolloffFactor=1.4;zombiePanner.connect(audio.destination);}
+    zombiePanner.positionX.value=point.x;zombiePanner.positionY.value=point.y+1.5;zombiePanner.positionZ.value=point.z;const source=audio.createBufferSource();source.buffer=zombieBuffer;source.connect(zombiePanner);source.onended=()=>source.disconnect();source.start();
+  }catch{}
+}
 function updateAudioPose(position,quaternion){
   if(!audio)return;const listener=audio.listener,forward=V(0,0,-1).applyQuaternion(quaternion),up=V(0,1,0).applyQuaternion(quaternion);
   if(listener.positionX){for(const axis of ['x','y','z']){const suffix=axis.toUpperCase();listener['position'+suffix].value=position[axis];listener['forward'+suffix].value=forward[axis];listener['up'+suffix].value=up[axis];}}
@@ -73,7 +92,7 @@ function updateAudioPose(position,quaternion){
   for(let i=0;i<2;i++)if(shotPanners[i]){const p=shotPanners[i],v=shooterWorld[i];p.positionX.value=v.x;p.positionY.value=v.y;p.positionZ.value=v.z;}
 }
 function surfaceNormal(point){
-  for(const box of city.boxes)if(point.x>=box.min.x-.02&&point.x<=box.max.x+.02&&point.y>=box.min.y-.02&&point.y<=box.max.y+.02&&point.z>=box.min.z-.02&&point.z<=box.max.z+.02){for(const axis of ['x','y','z'])for(const side of ['min','max'])if(Math.abs(point[axis]-box[side][axis])<.02){const normal=V();normal[axis]=side==='min'?-1:1;return normal;}}
+  for(const box of weapons.boxes)if(point.x>=box.min.x-.02&&point.x<=box.max.x+.02&&point.y>=box.min.y-.02&&point.y<=box.max.y+.02&&point.z>=box.min.z-.02&&point.z<=box.max.z+.02){for(const axis of ['x','y','z'])for(const side of ['min','max'])if(Math.abs(point[axis]-box[side][axis])<.02){const normal=V();normal[axis]=side==='min'?-1:1;return normal;}}
   return V(0,1,0);
 }
 function cancelWeb(i){physics.release(i);city.npcs.releaseWeb(i);flightNPC[i]=null;flights[i].cancel();impactTimers[i]=0;flashTimers[i]=0;}
@@ -121,6 +140,15 @@ window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camer
 const hudCanvas=document.createElement('canvas');hudCanvas.width=1024;hudCanvas.height=512;const ctx=hudCanvas.getContext('2d'),hudTexture=new T.CanvasTexture(hudCanvas);hudTexture.colorSpace=T.SRGBColorSpace;
 const vrHUD=new T.Mesh(new T.PlaneGeometry(1.1,.55),new T.MeshBasicMaterial({map:hudTexture,transparent:true,depthTest:false}));vrHUD.renderOrder=20;scene.add(vrHUD);vrHUD.visible=false;
 const comfortGeo=new T.RingGeometry(.36,3,64);const comfort=new T.Mesh(comfortGeo,new T.MeshBasicMaterial({color:0x091721,transparent:true,opacity:0,depthTest:false,side:T.DoubleSide}));comfort.renderOrder=19;scene.add(comfort);comfort.visible=false;
+const damageMask=new T.Mesh(new T.RingGeometry(.23,2,48),new T.MeshBasicMaterial({color:0xd92720,transparent:true,opacity:0,depthTest:false,depthWrite:false,side:T.DoubleSide}));damageMask.renderOrder=21;damageMask.visible=false;scene.add(damageMask);
+const missionCanvas=document.createElement('canvas');missionCanvas.width=768;missionCanvas.height=192;const missionCtx=missionCanvas.getContext('2d'),missionTexture=new T.CanvasTexture(missionCanvas);missionTexture.colorSpace=T.SRGBColorSpace;
+const missionDisplay=new T.Mesh(new T.PlaneGeometry(.26,.065),new T.MeshBasicMaterial({map:missionTexture,transparent:true,depthWrite:false,side:T.DoubleSide}));missionDisplay.name='quarantine-wrist-status';hands[0].wrist.add(missionDisplay);missionDisplay.position.set(0,.042,.065);missionDisplay.rotation.x=-Math.PI/2;missionDisplay.visible=false;let missionText='';
+function updateChallengeHud(){
+  damageMask.visible=active&&!paused&&challenge.damageFlash>0;damageMask.position.copy(headWorld).add(V(0,0,-.38).applyQuaternion(headQuat));damageMask.quaternion.copy(headQuat);damageMask.material.opacity=challenge.damageFlash*.46;
+  missionDisplay.visible=active&&!paused&&tower.near(physics.p);
+  const text=challenge.invulnerableUntil-challenge.time>1?`RESPAWNED · HP ${challenge.health}`:`HP ${challenge.health}  ·  ${challenge.remaining}/40 LEFT  ·  ${tower.level(physics.p)===10?'ROOF':'F'+(tower.level(physics.p)+1)}`;
+  if(text!==missionText){missionText=text;missionCtx.clearRect(0,0,768,192);missionCtx.fillStyle='rgba(12,25,28,.92)';missionCtx.fillRect(0,0,768,192);missionCtx.fillStyle=challenge.health>25?'#e5dfb7':'#ff604b';missionCtx.font='bold 36px sans-serif';missionCtx.fillText('QUARANTINE RESIDENCES',20,58);missionCtx.font='bold 35px sans-serif';missionCtx.fillText(text,20,125);missionTexture.needsUpdate=true;}
+}
 function updateHud(time,headPos,headQuat){
   const speed=physics.v.length(),ropeCount=physics.ropes.filter(Boolean).length+city.npcs.webs.filter(Boolean).length;
   if((!session||paused)&&time-lastHud>.15){lastHud=time;$('speed').textContent=Math.round(speed*3.6);$('altitude').textContent=Math.round(physics.p.y);$('ropeStatus').textContent=ropeCount?`${ropeCount} WEB${ropeCount===2?'S':''} ATTACHED`:'WEBS READY';
@@ -217,7 +245,8 @@ renderer.setAnimationLoop((milliseconds,frame)=>{
   const time=milliseconds/1000,dt=lastTime?Math.min(.05,Math.max(0,time-lastTime)):1/72;lastTime=time;
   let ready=true;
   if(active){if(session&&frame){if(session.visibilityState!=='visible'){releaseAll();ready=false;}else ready=updateXR(frame,dt);}else if(desktop&&!paused)updateDesktop(dt);
-    if(!paused&&ready){advanceFlights(dt);accumulator+=dt;while(accumulator>=1/180){physics.step(1/180,moveWish,reels);accumulator-=1/180;}overlayTimer=Math.max(0,overlayTimer-dt);
+    tower.update(dt,physics.p,paused||!ready);weapons.boxes=shotBoxes.concat(tower.closedGates);
+    if(!paused&&ready){physics.boxes=tower.collisionNear(physics.p)?city.boxes.concat(tower.collisionBoxes(physics.p)):city.boxes;advanceFlights(dt);accumulator+=dt;while(accumulator>=1/180){tower.support(physics,1/180);physics.step(1/180,moveWish,reels);tower.support(physics,0);accumulator-=1/180;}challenge.update(dt,physics.p);overlayTimer=Math.max(0,overlayTimer-dt);
       const tethered=physics.ropes.some(Boolean)||flights.some(f=>f.active)||city.npcs.webs.some(Boolean)||city.npcs.grabs.some(Boolean);
       if(!tethered&&(Math.abs(physics.p.x)>265||Math.abs(physics.p.z)>265||physics.p.y< -10||physics.p.y>400))reset();
     }else accumulator=0;
@@ -226,10 +255,11 @@ renderer.setAnimationLoop((milliseconds,frame)=>{
     for(let i=0;i<2;i++)if(hands[i].visible)hands[i].position.copy(physics.p).add(handOffset[i]);
     if(!paused&&ready){for(let i=0;i<2;i++)city.npcs.hands[i].copy(physics.p).add(handOffset[i]);city.npcs.step(dt,physics.p,reels);}
     for(let i=0;i<2;i++)weapons.sync(i,hands[i].position,hands[i].quaternion);
-    drawWebs(paused?0:dt);updateHud(time,headWorld,headQuat);updateAudioPose(headWorld,headQuat);
+    drawWebs(paused?0:dt);updateHud(time,headWorld,headQuat);updateChallengeHud();updateAudioPose(headWorld,headQuat);
     if(wind)wind.gain.setTargetAtTime(!paused&&ready?Math.min(.18,physics.v.length()/350):0,audio.currentTime,.15);
   }else{
     rig.rotation.set(0,0,0);rig.position.set(65+Math.sin(time*.035)*15,100,100);camera.position.set(0,0,0);camera.lookAt(-10,20,-40);vrHUD.visible=false;comfort.visible=false;
+    damageMask.visible=missionDisplay.visible=false;tower.update(0,rig.position,true);
     tips.forEach(h=>h.visible=false);impacts.forEach(h=>h.visible=false);hands.forEach(h=>h.visible=false);webs.forEach(w=>w.visible=false);targets.forEach(t=>t.visible=false);aimLines.forEach(l=>l.visible=false);
   }
   weapons.update(dt,active?physics.p:rig.position,paused||!ready);
@@ -239,4 +269,4 @@ renderer.setAnimationLoop((milliseconds,frame)=>{
 });
 
 // Readable module exports also allow the integration harness to drive real input paths.
-export {updateXR,processHand,advanceFlights,drawWebs,updateHud,pause,reset,physics,flights,hands,webs,vrHUD,renderer,scene,city,quality,weapons,handsReady};
+export {updateXR,processHand,advanceFlights,drawWebs,updateHud,pause,reset,physics,flights,hands,webs,vrHUD,renderer,scene,city,quality,weapons,handsReady,tower,challenge,damageMask,supplies};

@@ -28,6 +28,16 @@ export class Weapons {
     }
     this.effects=Array.from({length:8},()=>{const line=new T.Line(new T.BufferGeometry().setFromPoints([V(),V()]),new T.LineBasicMaterial({color:0xffe2a0,transparent:true,opacity:0,depthWrite:false}));line.frustumCulled=false;line.visible=false;scene.add(line);const flash=new T.Mesh(new T.SphereGeometry(.025,8,6),new T.MeshBasicMaterial({color:0xffde96}));flash.visible=false;scene.add(flash);return {line,flash,life:0};});
   }
+  spawnPickup(position,{name='Supply pistol',damage=40,cooldown=.14,automatic=false,tint=0xffffff}={}){
+    const mesh=this.items[0].mesh.clone();mesh.material=mesh.material.clone();mesh.material.color.set(tint);mesh.position.copy(position);mesh.quaternion.identity();mesh.name=name;this.scene.add(mesh);
+    const slide=mesh.children[0];slide.material=mesh.material;slide.position.set(0,0,0);
+    // Supply variants keep the proven palm socket but have recognizable attachments.
+    if(automatic){const optic=new T.Mesh(new T.BoxGeometry(.046,.026,.065),mesh.material);optic.position.set(0,.083,-.095);mesh.add(optic);const lens=new T.Mesh(new T.BoxGeometry(.034,.018,.004),new T.MeshBasicMaterial({color:0x87dfb3}));lens.position.set(0,.086,-.13);mesh.add(lens);}
+    if(damage>=90){const shroud=new T.Mesh(new T.CylinderGeometry(.017,.017,.12,12),mesh.material);shroud.rotation.x=Math.PI/2;shroud.position.set(0,.038,-.19);mesh.add(shroud);}
+    if(damage>100){const magazine=new T.Mesh(new T.BoxGeometry(.034,.055,.041),mesh.material);magazine.position.set(0,-.115,.002);mesh.add(magazine);}
+    const halo=this.items[0].halo.clone();halo.material=halo.material.clone();halo.material.color.set(tint);this.scene.add(halo);
+    const item={mesh,slide,halo,home:position.clone(),p:position.clone(),v:V(),spin:V(),state:'floating',owner:null,age:0,lastShot:-10,kick:0,damage,cooldown,automatic,name};this.items.push(item);return item;
+  }
   nearest(position){let nearest=null,distance=.65;for(const item of this.items){if(item.owner!==null)continue;const d=item.p.distanceTo(position);if(d<distance){nearest=item;distance=d;}}return nearest;}
   input(hand,{position,quaternion,direction,delta,bodyVelocity,grip,trigger,dt,canGrab=true,socket=null}){
     if(delta&&dt>0&&delta.length()<=.3)this.velocities[hand].lerp(delta.clone().divideScalar(dt).add(bodyVelocity).clampLength(0,35),1-Math.exp(-35*dt));else this.velocities[hand].copy(bodyVelocity);
@@ -37,7 +47,7 @@ export class Weapons {
     if(!grip&&this.held[hand]){this.release(hand,true);released=true;}
     if(gripEdge&&canGrab&&!this.held[hand]){const item=this.nearest(position);if(item){item.state='held';item.owner=hand;item.age=0;this.held[hand]=item;grabbed=true;}}
     this.sockets[hand]=socket;this.aim[hand].copy(direction);this.sync(hand,position,quaternion);
-    if(this.held[hand]&&triggerEdge&&!grabbed)this.fire(hand);
+    if(this.held[hand]&&(triggerEdge||trigger&&this.held[hand].automatic)&&!grabbed)this.fire(hand);
     return {equipped:!!this.held[hand],grabbed,released};
   }
   sync(hand,position,quaternion){
@@ -50,15 +60,17 @@ export class Weapons {
     item.p.copy(item.mesh.position);item.halo.visible=false;
   }
   fire(hand){
-    const item=this.held[hand];if(!item||this.time-item.lastShot<.14)return false;item.lastShot=this.time;item.kick=1;this.shots++;
+    const item=this.held[hand];if(!item||this.time-item.lastShot<(item.cooldown??.14))return false;item.lastShot=this.time;item.kick=1;this.shots++;
     this.muzzle.set(0,.038,-.272).applyQuaternion(item.mesh.quaternion).add(item.mesh.position);
     const direction=FORWARD.clone().applyQuaternion(item.mesh.quaternion).normalize();this.ray.set(this.muzzle,direction);let distance=250;
     for(const b of this.boxes){if(b.containsPoint(this.muzzle)){distance=0;break;}if(this.ray.intersectBox(b,this.hit))distance=Math.min(distance,this.hit.distanceTo(this.muzzle));}
-    const npc=distance>.01?this.npcs.raycast(this.muzzle,direction,distance):null;
+    let npc=distance>.01?this.npcs.raycast(this.muzzle,direction,distance):null;
+    const hostile=distance>.01?this.combat?.raycast(this.muzzle,direction,npc?npc.distance:distance):null;
+    if(hostile){distance=hostile.distance;this.combat.hit(hostile,direction,item.damage??40);npc=null;}
     if(npc){distance=npc.distance;this.npcs.kill(npc.person,npc.node,direction.clone().multiplyScalar(9));}
     for(const p of this.npcs.people)if(!p.dead&&p.p.distanceToSquared(this.muzzle)<30**2)p.reactUntil=this.npcs.time+5;
     const effect=this.effects[this.nextEffect++%this.effects.length],end=this.muzzle.clone().addScaledVector(direction,distance),positions=effect.line.geometry.attributes.position;positions.setXYZ(0,...this.muzzle);positions.setXYZ(1,...end);positions.needsUpdate=true;effect.line.visible=true;effect.line.material.opacity=.8;effect.flash.position.copy(this.muzzle);effect.flash.visible=true;effect.life=.065;
-    this.onFire(hand,this.muzzle.clone(),!!npc);return true;
+    this.onFire(hand,this.muzzle.clone(),!!npc||!!hostile);return true;
   }
   release(hand,throwing=false){const item=this.held[hand];if(!item)return;item.owner=null;item.state='dropped';item.age=0;item.p.copy(item.mesh.position);item.v.copy(throwing?this.velocities[hand]:V());item.spin.set(throwing?this.velocities[hand].z*2:0,throwing?this.velocities[hand].x:0,throwing?this.velocities[hand].y:0).clampLength(0,15);this.held[hand]=null;}
   releaseHand(hand){if(this.held[hand]||this.gripWas[hand])this.blocked[hand]=true;this.release(hand,false);this.gripWas[hand]=false;this.triggerWas[hand]=false;this.velocities[hand].set(0,0,0);}
