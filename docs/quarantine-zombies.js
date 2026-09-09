@@ -1,12 +1,13 @@
 import * as T from './vendor/three.module.min.js';
 import {personModel,bodyPoints} from './city-models.js?visual=3';
-import {NPCPhysics} from './npc-physics.js?combat=1';
-import {TOWER,towerPoint} from './quarantine-building.js';
+import {NPCPhysics} from './npc-physics.js?combat=2';
+import {TOWER,towerPoint} from './quarantine-building.js?perf=2';
+import {ZombieHitEffects} from './zombie-hit-effects.js';
 const V=(...v)=>new T.Vector3(...v),UP=V(0,1,0),parents=[1,0,1,1,3,4,1,6,7,0,9,10,0,12,13];
 export class QuarantineChallenge {
   constructor(scene,building,{respawn=()=>{},hit=()=>{},reward=()=>{},voice=()=>{}}={}){
-    this.building=building;this.respawn=respawn;this.onHit=hit;this.onReward=reward;this.voice=voice;this.voiceAt=0;this.time=0;this.health=100;this.damageFlash=0;this.invulnerableUntil=0;this.deaths=0;this.round=0;this.remaining=40;this.clearedAt=null;this.rewarded=false;this.active=false;this.seed=9381;
-    this.people=[];this.npcs=new NPCPhysics(this.people,building.solids);this.npcs.maxActive=6;this.graphs=[];this.flow=null;this.flowKey='';this.navAt=0;
+    this.effects=new ZombieHitEffects(scene);this.building=building;this.respawn=respawn;this.onHit=hit;this.onReward=reward;this.voice=voice;this.voiceAt=0;this.time=0;this.health=100;this.damageFlash=0;this.invulnerableUntil=0;this.deaths=0;this.round=0;this.remaining=40;this.clearedAt=null;this.rewarded=false;this.active=false;this.seed=9381;
+    this.people=[];this.npcs=new NPCPhysics(this.people,building.solids);this.npcs.maxActive=4;const ragdollBoxes=[];this.npcs.queryBoxes=p=>building.queryBoxes(p,3,2.5,3,ragdollBoxes);this.graphs=[];this.flow=null;this.flowKey='';this.navAt=0;
     // A compact 0.5 m navigation grid per floor includes actual wall/door/furniture clearance.
     this.cell=.5;this.cols=29;this.rows=54;
     for(let f=0;f<10;f++){
@@ -62,7 +63,7 @@ export class QuarantineChallenge {
     }return result;
   }
   hit(target,direction,damage=40){
-    const p=target.person;if(p.dead)return false;p.health-=damage*(target.node===2?2.5:1);p.stagger=.32;p.nextAttack=Math.max(p.nextAttack,this.time+.45);p.attack=0;
+    const p=target.person;if(p.dead)return false;this.effects.hit(target.point||this.npcs.position(p,target.node),direction,.2+p.floor*4);p.health-=damage*(target.node===2?2.5:1);p.stagger=.32;p.nextAttack=Math.max(p.nextAttack,this.time+.45);p.attack=0;
     if(p.health<=0){if(!this.npcs.kill(p,target.node,direction.clone().multiplyScalar(5.5)))return false;this.remaining--;if(this.remaining===0)this.clearedAt=this.time;}
     return true;
   }
@@ -84,7 +85,7 @@ export class QuarantineChallenge {
     for(let j=0;j<15;j++){a.fromArray(bodyPoints[j]).sub(b.fromArray(bodyPoints[parents[j]])).normalize().applyQuaternion(qYaw);b.copy(pose[j]).sub(pose[parents[j]]).normalize();q.setFromUnitVectors(a,b).multiply(qYaw);const offset=(p.id*32+j*2)*4;this.poseData.set([pose[j].x,pose[j].y,pose[j].z,1,q.x,q.y,q.z,q.w],offset);}
   }
   update(dt,viewer,paused=false){
-    this.mesh.count=0;const floor=this.building.level(viewer),inside=this.building.inside(viewer),near=this.building.near(viewer);
+    this.effects.update(paused?0:Math.min(.05,Math.max(0,dt)));this.mesh.count=0;const floor=this.building.level(viewer),inside=this.building.inside(viewer),near=this.building.near(viewer);
     if(!paused){
       this.time+=Math.max(0,Math.min(.05,dt));this.damageFlash=Math.max(0,this.damageFlash-dt*2.2);if(inside)this.active=true;
       if(this.clearedAt!==null&&!inside&&this.time-this.clearedAt>=TOWER.resetSeconds)this.resetRound();
@@ -102,10 +103,10 @@ export class QuarantineChallenge {
         if(target){const dx=target.x-p.p.x,dz=target.z-p.p.z,d=Math.hypot(dx,dz),step=Math.min(d,p.speed*dt*(engaged?1:.35));if(d>.02){let next=p.p.clone().add(V(dx/d*step,0,dz/d*step));const blocked=c=>this.graphs[p.floor][this.cellAt(c)]||this.people.some(o=>o!==p&&!o.dead&&o.floor===p.floor&&o.p.distanceToSquared(c)<.36**2);if(blocked(next)){for(const side of [1,-1]){const bypass=p.p.clone().add(V(-dz/d*step*side,0,dx/d*step*side));if(!blocked(bypass)){next=bypass;break;}}}if(!blocked(next)){p.p.copy(next);p.yaw=Math.atan2(-dx,-dz);}}}
       }
       if(inside&&this.time>=this.voiceAt){const close=this.people.find(p=>!p.dead&&p.floor===floor&&p.p.distanceToSquared(viewer)<100);if(close)this.voice(close.p);this.voiceAt=this.time+3.5+this.rand()*2;}
-      this.npcs.step(dt,viewer);
+      if(near)this.npcs.step(dt,viewer);
     }
     for(const p of this.people){if(!near||Math.abs(p.floor-floor)>1||p.p.distanceToSquared(viewer)>32**2)continue;this.upload(p);this.dummy.position.copy(p.p);this.dummy.quaternion.identity();this.dummy.scale.setScalar(p.scale);this.dummy.updateMatrix();const i=this.mesh.count++;this.mesh.setMatrixAt(i,this.dummy.matrix);this.mesh.geometry.attributes.zombieId.setX(i,p.id);}
-    this.mesh.instanceMatrix.needsUpdate=true;this.mesh.geometry.attributes.zombieId.needsUpdate=true;this.poseTexture.needsUpdate=true;
+    if(this.mesh.count){this.mesh.instanceMatrix.needsUpdate=true;this.mesh.geometry.attributes.zombieId.needsUpdate=true;this.poseTexture.needsUpdate=true;}
     const text=this.remaining?`${this.remaining} INFECTED · REWARD ON ROOF`:this.rewarded?`CLEARED · RESET ${Math.max(0,Math.ceil((600-this.time+this.clearedAt)/60))} MIN`:'ALL CLEAR · CLAIM ROOFTOP WEAPON';this.building.setStatus(text);
   }
 }

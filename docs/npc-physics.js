@@ -79,7 +79,7 @@ export class NPCPhysics {
     this.time+=dt;
     for(let i=0;i<2;i++){const w=this.webs[i];if(!w)continue;const n=w.person.ragdoll.nodes[w.node];if(reels[i])w.length=Math.max(1,w.length-14*dt);const toward=this.hands[i].clone().sub(n.p),distance=toward.length();if(distance>w.length){toward.divideScalar(distance);n.v.addScaledVector(toward,Math.max(0,Math.min(120,(distance-w.length)*18-n.v.dot(toward)*3))*dt);}}
     for(const r of [...this.active]){
-      r.age+=dt;const center=r.nodes[0].p,candidates=this.boxes.filter(b=>center.x>b.min.x-4&&center.x<b.max.x+4&&center.z>b.min.z-4&&center.z<b.max.z+4);
+      r.age+=dt;const center=r.nodes[0].p,candidates=this.queryBoxes?this.queryBoxes(center):this.boxes.filter(b=>center.x>b.min.x-4&&center.x<b.max.x+4&&center.z>b.min.z-4&&center.z<b.max.z+4);
       for(const n of r.nodes){n.before.copy(n.p);n.v.y-=14*dt;n.v.multiplyScalar(Math.exp(-.35*dt)).clampLength(0,35);n.p.addScaledVector(n.v,dt);this.collide(n,n.before,candidates);}
       for(let iter=0;iter<5;iter++){
         for(const link of r.links){const a=r.nodes[link.a].p,b=r.nodes[link.b].p,d=scratch.copy(b).sub(a),length=d.length();if(length<.00001)continue;d.multiplyScalar((length-link.length)/length*.5);a.add(d);b.sub(d);}

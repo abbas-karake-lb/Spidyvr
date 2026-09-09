@@ -1,12 +1,12 @@
 import * as T from './vendor/three.module.min.js';
 import {Movement,V,defaults} from './physics.js?pull=5';
-import {createCity} from './city.js?city=4';
+import {createCity} from './city.js?city=5';
 import {configureCityRendering,visualQuality} from './city-quality.js?visual=3';
 import {AnimatedHand} from './hands.js?grip=3';
 import {WebVisual,webImpact} from './web-visual.js';
-import {Weapons} from './weapons.js?quarantine=1';
-import {createQuarantineBuilding,towerPoint} from './quarantine-building.js';
-import {QuarantineChallenge} from './quarantine-zombies.js';
+import {Weapons} from './weapons.js?quarantine=2';
+import {createQuarantineBuilding,towerPoint} from './quarantine-building.js?perf=2';
+import {QuarantineChallenge} from './quarantine-zombies.js?perf=2';
 import {turnDelta,WebFlight,showVRPanel} from './traversal.js';
 const $=id=>document.getElementById(id);
 const scene=new T.Scene();scene.background=new T.Color(0xa3c3d4);scene.fog=new T.Fog(0xa9bac4,280,1000);
@@ -20,7 +20,9 @@ $('viewport').appendChild(renderer.domElement);
 const camera=new T.PerspectiveCamera(72,innerWidth/innerHeight,.08,1100);camera.rotation.order='YXZ';
 const rig=new T.Group();rig.add(camera);scene.add(rig);
 const city=createCity(scene),quality=configureCityRendering(renderer,scene,sun,city);const physics=new Movement(city.boxes);
-const tower=createQuarantineBuilding(scene),shotBoxes=[...city.boxes,...tower.solids];
+const exterior=new T.Group();exterior.name='city-exterior-portal';for(const o of [...scene.children])if(o!==rig&&!o.isLight)exterior.add(o);scene.add(exterior);
+const tower=createQuarantineBuilding(scene),shotBoxes=[...city.boxes,...tower.solids],movementBoxes=[],rayCandidates=[];
+city.life.setTrafficObstacles([new T.Box3(towerPoint(-10.2,0,-14.2),towerPoint(10.2,44,14.2))]);
 const settings={...defaults,vignette:false};try{const saved=JSON.parse(localStorage.getItem('spidyvr-settings')||'{}');for(const key of ['pull','jump','gravity'])if(Number.isFinite(saved[key]))settings[key]=Math.max(+$(key).min,Math.min(+$(key).max,saved[key]));settings.vignette=!!saved.vignette;}catch{}
 Object.assign(physics.settings,settings);
 function syncSettings(){for(const k of ['pull','jump','gravity']){$(k).value=settings[k];$(k+'Value').value=settings[k];} $('vignette').checked=settings.vignette;Object.assign(physics.settings,settings);try{localStorage.setItem('spidyvr-settings',JSON.stringify(settings));}catch{}}
@@ -46,6 +48,7 @@ for(let i=0;i<2;i++){
 }
 const handsReady=renderer.isWebGLRenderer?Promise.all(hands.map(h=>h.load())):Promise.resolve();
 const weapons=new Weapons(scene,city.boxes,city.npcs,(hand,point)=>{pulse(hand,.8,55);gunSound(hand,point);});weapons.boxes=shotBoxes;
+weapons.queryRayBoxes=(o,d,max=250)=>{rayCandidates.length=0;rayCandidates.push(...city.boxes,...tower.rayBoxes(o,d,max));return rayCandidates;};
 const supplies=[weapons.spawnPickup(towerPoint(-11.25,1.65,-6.6),{name:'QUARANTINE · BREACHER',damage:90,cooldown:.32,tint:0xc6d4cb}),weapons.spawnPickup(towerPoint(-11.25,1.65,-4.4),{name:'QUARANTINE · RAPID',damage:45,cooldown:.13,automatic:true,tint:0x77b8b3})];
 let rewardGun=null;
 const challenge=new QuarantineChallenge(scene,tower,{
@@ -54,7 +57,7 @@ const challenge=new QuarantineChallenge(scene,tower,{
   respawn:point=>{releaseAll();physics.reset(point);lastHead=null;previousHand.fill(null);tower.resetLift();for(const item of supplies)if(item.owner===null){item.state='floating';item.p.copy(item.home);item.v.set(0,0,0);}sound(160);},
   reward:point=>{if(!rewardGun)rewardGun=weapons.spawnPickup(point,{name:'WARDEN · GOLD REWARD',damage:150,cooldown:.09,automatic:true,tint:0xffc658});else if(rewardGun.owner===null){rewardGun.home.copy(point);rewardGun.p.copy(point);rewardGun.state='floating';rewardGun.v.set(0,0,0);}sound(880);pulse(0,.5,150);pulse(1,.5,150);}
 });weapons.combat=challenge;
-function cast(o,d,max=170){ray.set(o,d);let nearest=max,point=null;for(const box of weapons.boxes){if(ray.intersectBox(box,hit)){const distance=hit.distanceTo(o);if(distance>.25&&distance<nearest){nearest=distance;point=hit.clone();}}}return point;}
+function cast(o,d,max=170){ray.set(o,d);let nearest=max,point=null;for(const box of weapons.queryRayBoxes(o,d,max)){if(ray.intersectBox(box,hit)){const distance=hit.distanceTo(o);if(distance>.25&&distance<nearest){nearest=distance;point=hit.clone();}}}return point;}
 function pulse(i,power=.4,duration=35){try{sources[i]?.gamepad?.hapticActuators?.[0]?.pulse(power,duration)?.catch(()=>{});}catch{}}
 function sound(freq=380){if(!audio)return;try{const osc=audio.createOscillator(),gain=audio.createGain();osc.frequency.setValueAtTime(freq,audio.currentTime);osc.frequency.exponentialRampToValueAtTime(freq*.35,audio.currentTime+.12);gain.gain.setValueAtTime(.06,audio.currentTime);gain.gain.exponentialRampToValueAtTime(.001,audio.currentTime+.14);osc.connect(gain).connect(audio.destination);osc.start();osc.stop(audio.currentTime+.15);}catch{}}
 async function startAudio(){try{if(!audio){audio=new AudioContext();const buffer=audio.createBuffer(1,audio.sampleRate*2,audio.sampleRate),data=buffer.getChannelData(0);for(let i=0;i<data.length;i++)data[i]=(Math.random()-.5)*.3;const noise=audio.createBufferSource();noise.buffer=buffer;noise.loop=true;const filter=audio.createBiquadFilter();filter.type='lowpass';filter.frequency.value=600;wind=audio.createGain();wind.gain.value=0;noise.connect(filter).connect(wind).connect(audio.destination);noise.start();}await audio.resume();}catch{}}
@@ -245,8 +248,8 @@ renderer.setAnimationLoop((milliseconds,frame)=>{
   const time=milliseconds/1000,dt=lastTime?Math.min(.05,Math.max(0,time-lastTime)):1/72;lastTime=time;
   let ready=true;
   if(active){if(session&&frame){if(session.visibilityState!=='visible'){releaseAll();ready=false;}else ready=updateXR(frame,dt);}else if(desktop&&!paused)updateDesktop(dt);
-    tower.update(dt,physics.p,paused||!ready);weapons.boxes=shotBoxes.concat(tower.closedGates);
-    if(!paused&&ready){physics.boxes=tower.collisionNear(physics.p)?city.boxes.concat(tower.collisionBoxes(physics.p)):city.boxes;advanceFlights(dt);accumulator+=dt;while(accumulator>=1/180){tower.support(physics,1/180);physics.step(1/180,moveWish,reels);tower.support(physics,0);accumulator-=1/180;}challenge.update(dt,physics.p);overlayTimer=Math.max(0,overlayTimer-dt);
+    tower.update(dt,physics.p,paused||!ready);shotBoxes.length=city.boxes.length+tower.solids.length;shotBoxes.push(...tower.closedGates);weapons.boxes=shotBoxes;
+    if(!paused&&ready){movementBoxes.length=0;if(tower.collisionNear(physics.p))movementBoxes.push(...city.boxes,...tower.collisionBoxes(physics.p,physics.v,Math.max(dt,1/30)));physics.boxes=movementBoxes.length?movementBoxes:city.boxes;advanceFlights(dt);accumulator+=dt;while(accumulator>=1/180){tower.support(physics,1/180);physics.step(1/180,moveWish,reels);tower.support(physics,0);accumulator-=1/180;}challenge.update(dt,physics.p);overlayTimer=Math.max(0,overlayTimer-dt);
       const tethered=physics.ropes.some(Boolean)||flights.some(f=>f.active)||city.npcs.webs.some(Boolean)||city.npcs.grabs.some(Boolean);
       if(!tethered&&(Math.abs(physics.p.x)>265||Math.abs(physics.p.z)>265||physics.p.y< -10||physics.p.y>400))reset();
     }else accumulator=0;
@@ -265,6 +268,10 @@ renderer.setAnimationLoop((milliseconds,frame)=>{
   weapons.update(dt,active?physics.p:rig.position,paused||!ready);
   city.update?.(time,active?physics.p:rig.position,paused);
   quality.update(active?physics.p:rig.position);
+  // Upper apartments are fully enclosed: their opaque portal cell occludes
+  // the outdoor city. Restore it before reaching the lobby, roof or outer wall.
+  const view=active?physics.p:rig.position;
+  exterior.visible=!(active&&view.y>3.5&&view.y<35.5&&view.x>244&&view.x<256&&Math.abs(view.z-44)<12.5);
   renderer.render(scene,camera);
 });
 

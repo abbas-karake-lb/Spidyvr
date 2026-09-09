@@ -77,3 +77,35 @@ test('Quest supply pickup, automatic zombie fire, hit feedback, respawn and pres
   const reward=api.weapons.items.find(i=>i.name==='WARDEN · GOLD REWARD');assert.ok(reward);assert.equal(reward.damage,150);assert.ok(reward.automatic);
   sources[0].gamepad.buttons[1].pressed=true;h.tick();assert.equal(api.weapons.held[0],reward,'rooftop pedestal permits actual hand pickup');
 });
+
+test('opaque structure remains resident across distance/floor boundaries without light switching',()=>{
+  const b=building(),ray=new T.Raycaster(),directions=[V(1,0,0),V(-1,0,0),V(0,0,1),V(0,0,-1)];
+  b.root.updateMatrixWorld(true);
+  for(let f=1;f<10;f++){
+    b.update(1/90,V(0,100,0));assert.ok(b.structure.visible);
+    ray.set(towerPoint(-3,.2+f*4+1.7,0),V(0,1,0));assert.ok(ray.intersectObject(b.structure,true).some(h=>h.distance<2.5),'ceiling stays present on hidden floors');
+    for(const d of directions){ray.set(towerPoint(0,.2+f*4+1.9,0),d);const hit=ray.intersectObject(b.shell,true).find(h=>h.distance<16);assert.ok(hit);assert.equal(hit.object.material.transparent,false);}
+    for(const y of [.2+f*4-.02,.2+f*4+.02,.2+f*4-.03]){b.update(1/90,towerPoint(-3,y,0));assert.ok(b.floors[f].visible);}
+  }
+  let lights=0;b.root.traverse(o=>{if(o.isLight)lights++;});assert.equal(lights,0);
+});
+
+test('spatial collision queries preserve swept collision results with a small local working set',()=>{
+  const b=building();let maximum=0;
+  for(let f=0;f<10;f++)for(const [x,z] of [[-1,0],[-6,8],[2,11],[6,-5]]){
+    const start=towerPoint(x,.2+f*4,z);
+    for(const delta of [V(2,0,0),V(-2,0,0),V(0,0,2),V(0,0,-2),V(0,4,0),V(0,-4,0)]){
+      const full=new Movement([...b.solids,...b.closedGates]),local=new Movement();full.p.copy(start);local.p.copy(start);local.boxes=b.collisionBoxes(start,delta.clone().multiplyScalar(30),1/30);maximum=Math.max(maximum,local.boxes.length);full.move(delta);local.move(delta);assert.ok(full.p.distanceTo(local.p)<1e-7);
+    }
+  }
+  assert.ok(maximum<70,`candidate budget: ${maximum}`);
+  const origin=towerPoint(-1,1.5,0),direction=V(0,0,-1),ray=new T.Ray(origin,direction),hit=V();
+  const distance=boxes=>Math.min(...boxes.map(b=>ray.intersectBox(b,hit)?hit.distanceTo(origin):Infinity));
+  assert.equal(distance(b.rayBoxes(origin,direction)),distance(b.solids));assert.ok(b.rayBoxes(origin,direction).length<200);
+});
+
+test('sustained zombie gunfire keeps blood effects bounded and expires all particles',async()=>{
+  const {ZombieHitEffects}=await import('../docs/zombie-hit-effects.js');const scene=new T.Scene(),fx=new ZombieHitEffects(scene);
+  for(let n=0;n<1000;n++){fx.hit(towerPoint(-1,1.5,0),V(0,0,-1),.2);fx.update(1/90);assert.ok(fx.spray.count<=96);assert.ok(fx.splat.count<=20);}
+  assert.equal(scene.children.length,2);for(let n=0;n<1001;n++)fx.update(1/90);assert.equal(fx.spray.count,0);assert.equal(fx.splat.count,0);
+});

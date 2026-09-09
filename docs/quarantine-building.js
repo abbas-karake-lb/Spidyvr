@@ -1,11 +1,12 @@
 import * as T from './vendor/three.module.min.js';
+import {mergeParts} from './city-models.js?visual=3';
 const V=(...v)=>new T.Vector3(...v);
 export const TOWER=Object.freeze({x:252,z:44,floors:10,height:4,base:.2,roof:40.2,resetSeconds:600});
 export const towerPoint=(x,y,z)=>V(TOWER.x+x,y,TOWER.z+z);
 // All geometry is authored around real passageways. There is no solid building AABB.
 export function createQuarantineBuilding(scene){
   const root=new T.Group();root.name='quarantine-residences';scene.add(root);
-  const shell=new T.Group();root.add(shell);const floors=[],solids=[],commonBoxes=[],floorBoxes=Array.from({length:11},()=>[]),batches=new Map(),unit=new T.BoxGeometry(1,1,1),dummy=new T.Object3D();
+  const shell=new T.Group(),structure=new T.Group();structure.name='quarantine-permanent-structure';root.add(shell,structure);const floors=[],solids=[],commonBoxes=[],floorBoxes=Array.from({length:11},()=>[]),batches=new Map(),rails=[],unit=new T.BoxGeometry(1,1,1),dummy=new T.Object3D();
   function texture(kind){
     const c=document.createElement('canvas');c.width=c.height=256;const ctx=c.getContext('2d');ctx.fillStyle=kind==='wood'?'#65513c':kind==='tile'?'#b7b5aa':'#c3b9a7';ctx.fillRect(0,0,256,256);
     let seed=145;const rand=()=>{seed=(seed*1664525+1013904223)>>>0;return seed/4294967296;};
@@ -14,13 +15,15 @@ export function createQuarantineBuilding(scene){
     for(let y=0;y<256;y+=kind==='wood'?32:64){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(256,y);ctx.stroke();for(let x=(y%64?32:0);x<256;x+=128){ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x,y+(kind==='wood'?32:64));ctx.stroke();}}
     const map=new T.CanvasTexture(c);map.colorSpace=T.SRGBColorSpace;map.wrapS=map.wrapT=T.RepeatWrapping;map.anisotropy=4;return map;
   }
-  const mats={stone:new T.MeshStandardMaterial({color:0x8c9290,roughness:.85}),plaster:new T.MeshStandardMaterial({color:0xe0d8c8,roughness:.9}),wood:new T.MeshStandardMaterial({map:texture('wood'),roughness:.64}),tile:new T.MeshStandardMaterial({map:texture('tile'),roughness:.45}),metal:new T.MeshStandardMaterial({color:0x687778,metalness:.7,roughness:.3}),gold:new T.MeshStandardMaterial({color:0xc89a47,metalness:.62,roughness:.3}),dark:new T.MeshStandardMaterial({color:0x1b292e,roughness:.64}),cloth:new T.MeshStandardMaterial({color:0x59706c,roughness:.96}),white:new T.MeshStandardMaterial({color:0xe9e3d8,roughness:.63}),light:new T.MeshBasicMaterial({color:0xffdfa2}),red:new T.MeshBasicMaterial({color:0xd9422e}),glass:new T.MeshStandardMaterial({color:0x8cbbc2,metalness:.12,roughness:.12,transparent:true,opacity:.24,depthWrite:false})};
+  const mats={stone:new T.MeshStandardMaterial({color:0x8c9290,roughness:.85}),plaster:new T.MeshStandardMaterial({color:0xe0d8c8,roughness:.9}),wood:new T.MeshStandardMaterial({map:texture('wood'),roughness:.64}),tile:new T.MeshStandardMaterial({map:texture('tile'),roughness:.45}),metal:new T.MeshStandardMaterial({color:0x687778,metalness:.7,roughness:.3}),gold:new T.MeshStandardMaterial({color:0xc89a47,metalness:.62,roughness:.3}),dark:new T.MeshStandardMaterial({color:0x1b292e,roughness:.64}),cloth:new T.MeshStandardMaterial({color:0x59706c,roughness:.96}),white:new T.MeshStandardMaterial({color:0xe9e3d8,roughness:.63}),light:new T.MeshBasicMaterial({color:0xffdfa2}),red:new T.MeshBasicMaterial({color:0xd9422e}),glass:new T.MeshStandardMaterial({color:0x8cbbc2,metalness:.12,roughness:.12,transparent:false,depthWrite:true})};
   function box(group,kind,x,y,z,w,h,d,solid=false,floor=-1){
+    // Floors, walls and stairs never disappear with furniture visibility.
+    if(group.name.startsWith('quarantine-floor-')||group.name==='quarantine-roof'){if(kind==='plaster'||kind==='stone'||solid&&kind==='tile'&&h<.3)group=structure;}
     const key=group.uuid+kind;if(!batches.has(key))batches.set(key,{group,kind,items:[]});batches.get(key).items.push([x,y,z,w,h,d]);
     if(solid){const b=new T.Box3(towerPoint(x-w/2,y-h/2,z-d/2),towerPoint(x+w/2,y+h/2,z+d/2));solids.push(b);if(floor>=0)floorBoxes[floor].push(b);else commonBoxes.push(b);return b;}
   }
   function sign(group,text,x,y,z,w=3,h=.55,rotation=0,color='#e7d8a9'){
-    const c=document.createElement('canvas');c.width=1024;c.height=256;const ctx=c.getContext('2d');ctx.fillStyle='#16292e';ctx.fillRect(0,0,1024,256);ctx.strokeStyle=color;ctx.lineWidth=12;ctx.strokeRect(7,7,1010,242);ctx.fillStyle=color;ctx.textAlign='center';ctx.textBaseline='middle';ctx.font='bold 70px sans-serif';ctx.fillText(text,512,130,970);
+    const c=document.createElement('canvas');c.width=512;c.height=128;const ctx=c.getContext('2d');ctx.scale(0.5,0.5);ctx.fillStyle='#16292e';ctx.fillRect(0,0,1024,256);ctx.strokeStyle=color;ctx.lineWidth=12;ctx.strokeRect(7,7,1010,242);ctx.fillStyle=color;ctx.textAlign='center';ctx.textBaseline='middle';ctx.font='bold 70px sans-serif';ctx.fillText(text,512,130,970);
     const map=new T.CanvasTexture(c);map.colorSpace=T.SRGBColorSpace;map.anisotropy=4;const mesh=new T.Mesh(new T.PlaneGeometry(w,h),new T.MeshBasicMaterial({map,side:T.DoubleSide}));mesh.position.copy(towerPoint(x,y,z));mesh.rotation.y=rotation;group.add(mesh);return {mesh,ctx,map};
   }
   function doorFrame(g,x,y,z,acrossX=true,f=0){
@@ -52,13 +55,13 @@ export function createQuarantineBuilding(scene){
         if(f===0&&x===-10&&z===0){box(shell,'stone',x,y+3.35,z,.35,1.3,4,true,f);continue;}
         box(shell,'stone',x,y+.5,z,.35,1,4,true,f);box(shell,'stone',x,y+3.4,z,.35,1.2,4,true,f);
         box(shell,'glass',x,y+1.9,z,.08,1.8,3.4,true,f);box(shell,'metal',x,y+1.9,z,.12,1.9,.055);
-        box(shell,'stone',x,y+1.9,z+1.85,.45,2,.3,true,f);
+        box(shell,'stone',x,y+1.9,z+2,.45,2,.65,true,f);
         box(shell,'gold',x+(x<0?-.15:.15),y+.94,z,.45,.12,3.55);
       }
     }
     for(const z of [-14,14]){
       box(shell,'stone',0,y+.5,z,20,1,.35,true,f);box(shell,'stone',0,y+3.4,z,20,1.2,.35,true,f);
-      for(let x=-8;x<=8;x+=4){box(shell,'glass',x,y+1.9,z,3.5,1.8,.08,true,f);box(shell,'stone',x+1.85,y+1.9,z,.3,2,.45,true,f);box(shell,'metal',x,y+1.9,z,.055,1.9,.12);}
+      for(let x=-8;x<=8;x+=4){box(shell,'glass',x,y+1.9,z,3.5,1.8,.08,true,f);box(shell,'stone',x+2,y+1.9,z,.55,2,.45,true,f);box(shell,'metal',x,y+1.9,z,.055,1.9,.12);}
     }
     for(const z of [-14.25,14.25])box(shell,'gold',0,y+3.85,z,20.6,.22,.4);
     box(shell,'gold',-10.22,y+3.85,0,.4,.22,28.6);
@@ -115,7 +118,7 @@ export function createQuarantineBuilding(scene){
     box(g,'stone',7.4,y+1.88,5.5,5.2,.24,3,true,f);
     for(let j=0;j<9;j++)for(const x of [5.02,7.4,9.92]){const z=-4+j;const sy=y+(x===9.92?2+(4-z)/4:(z+4)/4);box(g,'metal',x,sy+.55,z,.045,1.1,.045);}
     // Continuous sloped rails are separate meshes (two per flight).
-    for(const [x,reverse] of [[5.02,false],[7.3,false],[7.6,true],[9.92,true]]){const rail=new T.Mesh(new T.BoxGeometry(.06,.06,Math.sqrt(68)),mats.metal);rail.position.copy(towerPoint(x,y+(reverse?3:1)+1.1,0));rail.rotation.x=reverse?Math.atan(.25):-Math.atan(.25);g.add(rail);}
+    for(const [x,reverse] of [[5.02,false],[7.3,false],[7.6,true],[9.92,true]])rails.push({size:[.06,.06,Math.sqrt(68)],at:towerPoint(x,y+(reverse?3:1)+1.1,0).toArray(),rot:[reverse?Math.atan(.25):-Math.atan(.25),0,0]});
     // Shaft walls and signage; the front doorway has a dynamic safety gate.
     box(g,'metal',5,y+1.8,11,.18,3.6,4,true,f);box(g,'metal',9.3,y+1.8,11,.18,3.6,4,true,f);box(g,'metal',7.15,y+1.8,13,4.5,3.6,.18,true,f);
     sign(g,'LIFT · LEFT ↑  RIGHT ↓',7.15,y+2.9,8.94,3.7,.45);sign(g,'ENTER TO RIDE · STEP OUT TO SELECT AGAIN',7.15,y+2.45,8.94,3.7,.25);
@@ -135,16 +138,32 @@ export function createQuarantineBuilding(scene){
   // Street arsenal and rooftop reward pedestal.
   box(shell,'dark',-11.25,.65,-5.5,1.2,1.3,4,true);box(shell,'gold',-11.25,1.33,-5.5,1.3,.06,4.1);
   sign(shell,'SUPPLY CACHE · HOLD SIDE GRIP',-11.3,2,-5.5,4,.4,-Math.PI/2);
+  // The east traffic lane is closed before the site and diverted at its intersections.
+  for(const z of [-17,17]){box(shell,'dark',-8,.5,z,4,.8,.25,true);for(let i=0;i<7;i++)box(shell,'gold',-9.5+i*.5,.5,z+(z<0?-.14:.14),.23,.7,.02);sign(shell,'ROAD CLOSED · QUARANTINE',-8,1.5,z,4,.45,z<0?Math.PI:0);}
   // Flush entrance slides open automatically.
   const doors=[];for(const s of [-1,1]){const m=new T.Mesh(new T.BoxGeometry(.08,2.6,1.9),mats.glass);m.position.copy(towerPoint(-10.05,1.5,s));shell.add(m);doors.push(m);}
   const lift=new T.Group();lift.name='quarantine-working-elevator';lift.position.copy(towerPoint(7.15,.2,11));root.add(lift);
   const cabinMat=mats.metal;for(const [size,at] of [[[4,.12,3.7],[0,-.06,0]],[[4,2.8,.08],[0,1.4,1.8]],[[.08,2.8,3.6],[-1.95,1.4,0]],[[.08,2.8,3.6],[1.95,1.4,0]],[[4,.08,3.7],[0,2.85,0]]]){const m=new T.Mesh(new T.BoxGeometry(...size),cabinMat);m.position.fromArray(at);lift.add(m);}
   const lamp=new T.Mesh(new T.BoxGeometry(2,.02,1),mats.light);lamp.position.set(0,2.78,0);lift.add(lamp);
   const liftFloor=new T.Box3(),gates=[],gateMeshes=[];for(let f=0;f<=10;f++){const b=new T.Box3(towerPoint(5,TOWER.base+4*f,8.88),towerPoint(9.3,TOWER.base+4*f+2.8,9.08));gates.push(b);const m=new T.Mesh(new T.BoxGeometry(4.3,2.8,.1),mats.metal);m.position.copy(towerPoint(7.15,TOWER.base+4*f+1.4,8.98));root.add(m);gateMeshes.push(m);}
+  const railMesh=new T.Mesh(mergeParts(rails),mats.metal);railMesh.name='quarantine-batched-handrails';structure.add(railMesh);
   // Batches stay per floor so hidden floors cost no draw calls.
-  for(const {group,kind,items} of batches.values()){if(!items.length)continue;const mesh=new T.InstancedMesh(unit,mats[kind],items.length);mesh.name='quarantine-'+kind;items.forEach(([x,y,z,w,h,d],i)=>{dummy.position.copy(towerPoint(x,y,z));dummy.scale.set(w,h,d);dummy.updateMatrix();mesh.setMatrixAt(i,dummy.matrix);});mesh.computeBoundingSphere();mesh.castShadow=kind!=='light'&&kind!=='glass';mesh.receiveShadow=true;group.add(mesh);}
-  // Static geometry uses ambient fill and emissive fixtures; only two near-floor fill lights.
-  const fills=[new T.PointLight(0xffd9a3,20,16,2),new T.PointLight(0xc4dde1,12,14,2)];for(const l of fills)root.add(l);
+  for(const {group,kind,items} of batches.values()){if(!items.length)continue;const mesh=new T.InstancedMesh(unit,mats[kind],items.length);mesh.name='quarantine-'+kind;items.forEach(([x,y,z,w,h,d],i)=>{dummy.position.copy(towerPoint(x,y,z));dummy.scale.set(w,h,d);dummy.updateMatrix();mesh.setMatrixAt(i,dummy.matrix);});mesh.computeBoundingSphere();mesh.castShadow=group===shell&&kind!=='light'&&kind!=='glass';mesh.receiveShadow=group===shell;group.add(mesh);}
+  // Constant warm material fill: entering never changes the scene's light count
+  // (which recompiles every lit city material). No interior shadow-map passes.
+  for(const material of Object.values(mats))if(material.isMeshStandardMaterial){material.emissive.set(0x30291f);material.emissiveIntensity=.35;}
+  for(const group of [shell,structure,...floors])for(const child of group.children){child.updateMatrix();child.matrixAutoUpdate=false;}
+  for(const m of [...doors,beacon,marker.mesh])m.matrixAutoUpdate=true;
+  let visibilityLevel=0,detailNear=false;
+  const collisionResult=[],closed=[],seen=new Set(),grid=new Map(),cellSize=4;
+  const key=(x,y,z)=>x+','+y+','+z;
+  for(const b of solids)for(let x=Math.floor(b.min.x/cellSize);x<=Math.floor(b.max.x/cellSize);x++)for(let y=Math.floor(b.min.y/cellSize);y<=Math.floor(b.max.y/cellSize);y++)for(let z=Math.floor(b.min.z/cellSize);z<=Math.floor(b.max.z/cellSize);z++){const k=key(x,y,z);if(!grid.has(k))grid.set(k,[]);grid.get(k).push(b);}
+  function queryBoxes(p,rx=2,ry=3,rz=rx,out=[]){
+    out.length=0;seen.clear();
+    for(let x=Math.floor((p.x-rx)/4);x<=Math.floor((p.x+rx)/4);x++)for(let y=Math.floor((p.y-ry)/4);y<=Math.floor((p.y+ry)/4);y++)for(let z=Math.floor((p.z-rz)/4);z<=Math.floor((p.z+rz)/4);z++)for(const b of grid.get(key(x,y,z))||[]){if(seen.has(b))continue;seen.add(b);if(b.max.x>=p.x-rx&&b.min.x<=p.x+rx&&b.max.y>=p.y-ry&&b.min.y<=p.y+ry&&b.max.z>=p.z-rz&&b.min.z<=p.z+rz)out.push(b);}
+    if(p.x+rx>=TOWER.x+5&&p.x-rx<=TOWER.x+9.4&&p.z+rz>=TOWER.z+8.8&&p.z-rz<=TOWER.z+13){out.push(liftFloor);for(const b of closed)if(b.max.y>=p.y-ry&&b.min.y<=p.y+ry)out.push(b);}
+    return out;
+  }
   let liftY=.2,destination=.2,riding=false,entryTimer=0,armed=true,lastStatus='',doorOpen=0;
   const near=p=>Math.abs(p.x-TOWER.x)<14&&Math.abs(p.z-TOWER.z)<18;
   const collisionNear=p=>Math.abs(p.x-TOWER.x)<20&&Math.abs(p.z-TOWER.z)<24;
@@ -163,8 +182,13 @@ export function createQuarantineBuilding(scene){
     const y=stairHeight(player.p);if(y!==null&&player.v.y<=.5&&Math.abs(player.p.y-y)<.42){player.p.y=y;player.v.y=0;player.grounded=true;}
   }
   function update(dt,viewer,paused=false){
-    const f=level(viewer),close=near(viewer);for(let i=0;i<floors.length;i++)floors[i].visible=close&&Math.abs(i-f)<=1||i===10&&(!inside(viewer)||viewer.y>36)&&viewer.distanceToSquared(towerPoint(0,40,0))<100**2;
-    fills[0].position.copy(towerPoint(-3,.2+f*4+3,0));fills[1].position.copy(towerPoint(-3,.2+f*4+3,8));for(const l of fills)l.visible=close;
+    const f=level(viewer),close=near(viewer);
+    // Preload adjacent floors; hysteresis keeps detail stable on stair landings
+    // and across the entrance threshold. Structural occluders stay resident.
+    if(viewer.y<.2+visibilityLevel*4-.65||viewer.y>.2+(visibilityLevel+1)*4+.65)visibilityLevel=f;
+    const dx=Math.abs(viewer.x-TOWER.x),dz=Math.abs(viewer.z-TOWER.z);
+    detailNear=detailNear?dx<23&&dz<27:dx<20&&dz<24;
+    for(let i=0;i<floors.length;i++)floors[i].visible=i===10||detailNear&&Math.abs(i-visibilityLevel)<=1;
     marker.mesh.lookAt(viewer.x,130,viewer.z);beacon.scale.setScalar(1+Math.sin(performance.now()*.004)*.1);
     if(paused)return;
     const x=viewer.x-TOWER.x,z=viewer.z-TOWER.z,atDoor=Math.abs(x+10)<4&&Math.abs(z)<4&&viewer.y<3;
@@ -176,9 +200,11 @@ export function createQuarantineBuilding(scene){
     }
     syncLift();
   }
-  function syncLift(){lift.position.y=liftY;liftFloor.set(towerPoint(5.15,liftY-.12,9.15),towerPoint(9.15,liftY,12.85));gateMeshes.forEach((m,i)=>m.visible=Math.abs(liftY-(.2+i*4))>.08||riding);}
-  function collisionBoxes(p){if(!collisionNear(p))return [];const f=level(p),out=[];for(let i=Math.max(0,f-1);i<=Math.min(10,f+1);i++)out.push(...floorBoxes[i]);out.push(...commonBoxes);out.push(liftFloor);for(let i=0;i<=10;i++)if(Math.abs(liftY-(.2+i*4))>.08||riding)out.push(gates[i]);return out;}
+  function syncLift(){closed.length=0;for(let i=0;i<=10;i++)if(Math.abs(liftY-(.2+i*4))>.08||riding)closed.push(gates[i]);lift.position.y=liftY;liftFloor.set(towerPoint(5.15,liftY-.12,9.15),towerPoint(9.15,liftY,12.85));gateMeshes.forEach((m,i)=>m.visible=Math.abs(liftY-(.2+i*4))>.08||riding);}
+  const floorBounds=floorBoxes.map(list=>{const bounds=new T.Box3();for(const b of list)bounds.union(b);return bounds;}),targetRay=new T.Ray(),targetPoint=V(),targetBoxes=[];
+  function rayBoxes(origin,direction,max=250){targetBoxes.length=0;targetRay.set(origin,direction);for(let i=0;i<floorBounds.length;i++){const b=floorBounds[i];if(b.containsPoint(origin)||targetRay.intersectBox(b,targetPoint)&&targetPoint.distanceToSquared(origin)<=max*max)targetBoxes.push(...floorBoxes[i]);}targetBoxes.push(...commonBoxes,...closed);return targetBoxes;}
+  function collisionBoxes(p,velocity=null,dt=1/30){if(!collisionNear(p)){collisionResult.length=0;return collisionResult;}return queryBoxes(p,1+Math.abs(velocity?.x||0)*dt,2+Math.abs(velocity?.y||0)*dt,1+Math.abs(velocity?.z||0)*dt,collisionResult);}
   function setStatus(text){if(text===lastStatus)return;lastStatus=text;const {ctx,map}=status;ctx.fillStyle='#16292e';ctx.fillRect(0,0,1024,256);ctx.fillStyle='#b8ebce';ctx.font='bold 65px sans-serif';ctx.fillText(text,512,130,980);map.needsUpdate=true;}
   update(0,towerPoint(-14,.2,0));
-  return {root,shell,floors,solids,floorBoxes,near,collisionNear,inside,level,stairHeight,support,update,collisionBoxes,setStatus,spawn:towerPoint(-12,.2,2.6),reward:towerPoint(-3,41.55,0),lift,gates,get closedGates(){return gates.filter((_,i)=>gateMeshes[i].visible);},get riding(){return riding;},get liftY(){return liftY;},resetLift(){riding=false;armed=false;entryTimer=0;}};
+  return {root,shell,structure,queryBoxes,rayBoxes,floors,solids,floorBoxes,near,collisionNear,inside,level,stairHeight,support,update,collisionBoxes,setStatus,spawn:towerPoint(-12,.2,2.6),reward:towerPoint(-3,41.55,0),lift,gates,get closedGates(){return closed;},get riding(){return riding;},get liftY(){return liftY;},resetLift(){riding=false;armed=false;entryTimer=0;}};
 }

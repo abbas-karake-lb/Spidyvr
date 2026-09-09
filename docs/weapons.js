@@ -26,7 +26,12 @@ export class Weapons {
       const halo=new T.Mesh(new T.RingGeometry(.2,.215,32),new T.MeshBasicMaterial({color:0xaee4d7,transparent:true,opacity:.45,side:T.DoubleSide,depthWrite:false}));halo.rotation.x=-Math.PI/2;scene.add(halo);
       this.items.push({mesh,slide,halo,home,p:home.clone(),v:V(),spin:V(),state:'floating',owner:null,age:0,lastShot:-10,kick:0});
     }
-    this.effects=Array.from({length:8},()=>{const line=new T.Line(new T.BufferGeometry().setFromPoints([V(),V()]),new T.LineBasicMaterial({color:0xffe2a0,transparent:true,opacity:0,depthWrite:false}));line.frustumCulled=false;line.visible=false;scene.add(line);const flash=new T.Mesh(new T.SphereGeometry(.025,8,6),new T.MeshBasicMaterial({color:0xffde96}));flash.visible=false;scene.add(flash);return {line,flash,life:0};});
+    const flame=mergeParts([
+      {geo:new T.ConeGeometry(.034,.19,7),at:[0,0,-.09],rot:[-Math.PI/2,0,0],color:0xff9b38},
+      {geo:new T.ConeGeometry(.018,.105,6),at:[0,0,-.04],rot:[-Math.PI/2,0,0],color:0xfff2c7},
+      ...Array.from({length:4},(_,i)=>({geo:new T.ConeGeometry(.012,.105,4),at:[Math.cos(i*Math.PI/2)*.025,Math.sin(i*Math.PI/2)*.025,-.025],rot:[-Math.PI/2,0,i*Math.PI/2],color:0xffc75d}))
+    ]);
+    this.effects=Array.from({length:8},()=>{const line=new T.Line(new T.BufferGeometry().setFromPoints([V(),V()]),new T.LineBasicMaterial({color:0xffe2a0,transparent:true,opacity:0,depthWrite:false}));line.frustumCulled=false;line.visible=false;scene.add(line);const flash=new T.Mesh(flame,new T.MeshBasicMaterial({vertexColors:true,transparent:true,opacity:.9,blending:T.AdditiveBlending,depthWrite:false,toneMapped:false}));flash.visible=false;scene.add(flash);return {line,flash,life:0};});
   }
   spawnPickup(position,{name='Supply pistol',damage=40,cooldown=.14,automatic=false,tint=0xffffff}={}){
     const mesh=this.items[0].mesh.clone();mesh.material=mesh.material.clone();mesh.material.color.set(tint);mesh.position.copy(position);mesh.quaternion.identity();mesh.name=name;this.scene.add(mesh);
@@ -63,13 +68,13 @@ export class Weapons {
     const item=this.held[hand];if(!item||this.time-item.lastShot<(item.cooldown??.14))return false;item.lastShot=this.time;item.kick=1;this.shots++;
     this.muzzle.set(0,.038,-.272).applyQuaternion(item.mesh.quaternion).add(item.mesh.position);
     const direction=FORWARD.clone().applyQuaternion(item.mesh.quaternion).normalize();this.ray.set(this.muzzle,direction);let distance=250;
-    for(const b of this.boxes){if(b.containsPoint(this.muzzle)){distance=0;break;}if(this.ray.intersectBox(b,this.hit))distance=Math.min(distance,this.hit.distanceTo(this.muzzle));}
+    for(const b of this.queryRayBoxes?.(this.muzzle,direction,distance)||this.boxes){if(b.containsPoint(this.muzzle)){distance=0;break;}if(this.ray.intersectBox(b,this.hit))distance=Math.min(distance,this.hit.distanceTo(this.muzzle));}
     let npc=distance>.01?this.npcs.raycast(this.muzzle,direction,distance):null;
     const hostile=distance>.01?this.combat?.raycast(this.muzzle,direction,npc?npc.distance:distance):null;
     if(hostile){distance=hostile.distance;this.combat.hit(hostile,direction,item.damage??40);npc=null;}
     if(npc){distance=npc.distance;this.npcs.kill(npc.person,npc.node,direction.clone().multiplyScalar(9));}
     for(const p of this.npcs.people)if(!p.dead&&p.p.distanceToSquared(this.muzzle)<30**2)p.reactUntil=this.npcs.time+5;
-    const effect=this.effects[this.nextEffect++%this.effects.length],end=this.muzzle.clone().addScaledVector(direction,distance),positions=effect.line.geometry.attributes.position;positions.setXYZ(0,...this.muzzle);positions.setXYZ(1,...end);positions.needsUpdate=true;effect.line.visible=true;effect.line.material.opacity=.8;effect.flash.position.copy(this.muzzle);effect.flash.visible=true;effect.life=.065;
+    const effect=this.effects[this.nextEffect++%this.effects.length],end=this.muzzle.clone().addScaledVector(direction,distance),positions=effect.line.geometry.attributes.position;positions.setXYZ(0,...this.muzzle);positions.setXYZ(1,...end);positions.needsUpdate=true;effect.line.visible=true;effect.line.material.opacity=.8;effect.flash.position.copy(this.muzzle);effect.flash.quaternion.copy(item.mesh.quaternion);effect.item=item;effect.flash.visible=true;effect.life=.085;
     this.onFire(hand,this.muzzle.clone(),!!npc||!!hostile);return true;
   }
   release(hand,throwing=false){const item=this.held[hand];if(!item)return;item.owner=null;item.state='dropped';item.age=0;item.p.copy(item.mesh.position);item.v.copy(throwing?this.velocities[hand]:V());item.spin.set(throwing?this.velocities[hand].z*2:0,throwing?this.velocities[hand].x:0,throwing?this.velocities[hand].y:0).clampLength(0,15);this.held[hand]=null;}
@@ -86,6 +91,6 @@ export class Weapons {
       if(item.owner===null)item.mesh.position.copy(item.p);item.mesh.visible=item.owner!==null||viewer.distanceToSquared(item.p)<100**2;
       item.halo.visible=item.owner===null&&viewer.distanceToSquared(item.p)<12**2;item.halo.position.copy(item.p);item.halo.position.y-=.15;
     }
-    for(const e of this.effects){e.life=Math.max(0,e.life-dt);e.line.visible=e.life>0;e.flash.visible=e.life>.035;e.line.material.opacity=e.life/.065*.8;}
+    for(const e of this.effects){e.life=Math.max(0,e.life-dt);e.line.visible=e.life>0;e.flash.visible=e.life>.03;e.line.material.opacity=Math.min(1,e.life/.065)*.8;if(e.flash.visible){e.flash.position.set(0,.038,-.272).applyQuaternion(e.item.mesh.quaternion).add(e.item.mesh.position);e.flash.quaternion.copy(e.item.mesh.quaternion);e.flash.scale.setScalar(.75+e.life*5);e.flash.material.opacity=Math.min(.95,e.life*14);}}
   }
 }

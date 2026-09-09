@@ -1,7 +1,7 @@
 import * as T from './vendor/three.module.min.js';
 import {mergeParts,vehicleModel,personModel,dogModel,bodyPoints} from './city-models.js?visual=3';
 import {vehicleMaterial,visualQuality} from './city-quality.js?visual=3';
-import {NPCPhysics} from './npc-physics.js?combat=1';
+import {NPCPhysics} from './npc-physics.js?combat=2';
 const V=(x=0,y=0,z=0)=>new T.Vector3(x,y,z),UP=V(0,1,0);
 export function createCityLife(scene,boxes,parked=[]){
   let seed=8804;const rand=()=>{seed=(seed*1664525+1013904223)>>>0;return seed/4294967296;};
@@ -12,6 +12,14 @@ export function createCityLife(scene,boxes,parked=[]){
   const carsFar=Array.from({length:5},(_,type)=>pool('traffic-far-'+type,vehicleModel(type,true),material,92));
   const parkedNear=carsNear.map((m,i)=>pool('parked-near-'+i,m.geometry,material,85)),parkedFar=carsFar.map((m,i)=>pool('parked-far-'+i,m.geometry,material,85));
   const traffic=[],people=[],birds=[];
+  let trafficObstacles=[];const trafficRay=new T.Ray(),trafficHit=V(),trafficDelta=V(),trafficFrom=V(),trafficTo=V();
+  function roadBlocked(from,to){const length=trafficDelta.copy(to).sub(from).length();if(!length)return trafficObstacles.some(b=>b.containsPoint(from));trafficRay.set(from,trafficDelta.divideScalar(length));return trafficObstacles.some(b=>b.containsPoint(from)||trafficRay.intersectBox(b,trafficHit)&&trafficHit.distanceToSquared(from)<=length*length);}
+  function setTrafficObstacles(obstacles){
+    trafficObstacles=obstacles.map(b=>b.clone().expandByVector(V(1.5,5,1.5)));
+    // Applied once, before the first city frame, so no vehicle spawns in the new site.
+    for(const car of traffic){const lane=car.lane*44+22+car.sign*2.1,along=car.progress*car.sign;trafficFrom.set(car.horizontal?along:lane,0,car.horizontal?lane:along);trafficTo.copy(trafficFrom);trafficTo[car.horizontal?'x':'z']+=car.sign*8;if(roadBlocked(trafficFrom,trafficTo)){car.progress=Math.floor((car.progress-22)/44)*44+10;car.speed=0;}}
+  }
+
   for(let i=0;i<92;i++)traffic.push({id:i,horizontal:i%2===0,lane:-5+i%11,sign:i%4<2?1:-1,progress:rand()*460-230,speed:0,cruise:7+rand()*5,type:i%17===0?3:i%9===0?2:i%7===0?4:i%4===0?1:0,p:V(),angle:0,color:[0xb9c6c5,0xe5dbcb,0x456a7d,0xc14935,0xd2a443,0x5b6668,0xeeeeea,0x35494c][i%8]});
   const shirts=[0xc1c8be,0xa95540,0x52768b,0x566449,0x8a7588,0xc6a066,0x303c50,0xe3d7c2],skins=[0xf0c7a8,0xd2a07b,0xa97151,0x714a35,0xc49370];
   for(let i=0;i<288;i++){
@@ -88,13 +96,14 @@ export function createCityLife(scene,boxes,parked=[]){
       car.progress+=Math.min(Math.max(0,gap),car.speed*dt);
       const lane=car.lane*44+22+car.sign*2.1,along=car.progress*car.sign;car.p.set(car.horizontal?along:lane,0,car.horizontal?lane:along);car.angle=car.horizontal?-car.sign*Math.PI/2:car.sign>0?Math.PI:0;
       const remaining=(22-((car.progress%44+44)%44)+44)%44,cross=car.sign*(car.progress+remaining);
-      if(remaining<6.5&&(Math.abs(cross)>=241||((Math.round(cross/44)+car.id)%5===0))){
+      trafficFrom.set(car.horizontal?cross:lane,0,car.horizontal?lane:cross);trafficTo.copy(trafficFrom);trafficTo[car.horizontal?'x':'z']+=car.sign*44;const detour=roadBlocked(trafficFrom,trafficTo);
+      if(remaining<6.5&&(detour||Math.abs(cross)>=241||((Math.round(cross/44)+car.id)%5===0))){
         const horizontal=!car.horizontal,newLane=Math.round((cross-22)/44),oldCenter=car.lane*44+22;
         let sign=car.horizontal?car.sign:-car.sign;if(oldCenter>=241)sign=-1;if(oldCenter<=-241)sign=1;
         const side=newLane*44+22+sign*2.1,endAlong=oldCenter+sign*7;
         const end=V(horizontal?endAlong:side,0,horizontal?side:endAlong),control=car.horizontal?V(end.x,0,car.p.z):V(car.p.x,0,end.z);
-        if(!traffic.some(other=>other!==car&&other.p.distanceToSquared(end)<5**2))car.turn={start:car.p.clone(),control,end,t:0,length:Math.max(5,car.p.distanceTo(control)+control.distanceTo(end)),next:{horizontal,sign,lane:newLane,progress:endAlong*sign}};
-        else if(Math.abs(cross)>=241)car.speed=0;
+        if(!roadBlocked(car.p,control)&&!roadBlocked(control,end)&&!traffic.some(other=>other!==car&&other.p.distanceToSquared(end)<5**2))car.turn={start:car.p.clone(),control,end,t:0,length:Math.max(5,car.p.distanceTo(control)+control.distanceTo(end)),next:{horizontal,sign,lane:newLane,progress:endAlong*sign}};
+        else if(detour||Math.abs(cross)>=241){car.progress-=car.speed*dt;car.speed=0;}
       }
       const distance=car.p.distanceToSquared(viewer);if(distance<360**2)write(distance<visualQuality.vehicleRange**2?carsNear[car.type]:carsFar[car.type],car.p,car.angle,car.type===4?0xe4b64d:car.color);
     }
@@ -135,5 +144,5 @@ export function createCityLife(scene,boxes,parked=[]){
     stats.cars=carsNear.reduce((n,m)=>n+m.count,0)+carsFar.reduce((n,m)=>n+m.count,0);stats.pedestrians=peopleNear.count+peopleFar.count;stats.birds=birdsMesh.count;stats.aircraft=Number(aircraft.visible);stats.dogs=dogs.count;stats.ragdolls=npcs.active.length;
   }
   update(0,V(0,32,0));
-  return {update,stats,npcs,pools:{carsNear:carsNear[0],carsFar:carsFar[0],vehicleNear:carsNear,vehicleFar:carsFar,peopleNear,peopleFar,birdsMesh,dogs},traffic,people,signal:()=>frozen%18};
+  return {update,setTrafficObstacles,stats,npcs,pools:{carsNear:carsNear[0],carsFar:carsFar[0],vehicleNear:carsNear,vehicleFar:carsFar,peopleNear,peopleFar,birdsMesh,dogs},traffic,people,signal:()=>frozen%18};
 }

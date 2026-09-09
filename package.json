@@ -6,7 +6,7 @@
   "license": "Apache-2.0",
   "scripts": {
     "test": "node --experimental-vm-modules --test tests/*.test.js",
-    "check": "node --check docs/game.js && node --check docs/physics.js && node --check docs/city.js && node --check docs/city-detail.js && node --check docs/city-life.js && node --check docs/traversal.js && node --check docs/city-models.js && node --check docs/city-look.js && node --check docs/npc-physics.js && node --check docs/city-quality.js && node --check docs/hands.js && node --check docs/web-visual.js && node --check docs/weapons.js && node --check docs/quarantine-building.js && node --check docs/quarantine-zombies.js",
+    "check": "node --check docs/game.js && node --check docs/physics.js && node --check docs/city.js && node --check docs/city-detail.js && node --check docs/city-life.js && node --check docs/traversal.js && node --check docs/city-models.js && node --check docs/city-look.js && node --check docs/npc-physics.js && node --check docs/city-quality.js && node --check docs/hands.js && node --check docs/web-visual.js && node --check docs/weapons.js && node --check docs/quarantine-building.js && node --check docs/quarantine-zombies.js && node --check docs/zombie-hit-effects.js",
     "dev": "node scripts/preview-server.mjs"
   }
 }
